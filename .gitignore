@@ -1,0 +1,55 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+*.egg
+.eggs/
+pip-wheel-metadata/
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+.Spotlight-V100
+.Trashes
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.cursor/
+
+# App artifacts
+logs/
+*.log
+~/.config/wiz-ambient/
+config.json
+
+# py2app / build outputs
+*.app
+*.dmg
+build_artifacts/
+
+# Swift build
+wiz_ambient/capture_audio.dSYM/
+*.o
+
+# Secrets / local
+.env
+.env.local
+secrets.json

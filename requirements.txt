@@ -1,0 +1,8 @@
+pywizlight>=0.5.14
+numpy>=1.24.0
+Pillow>=10.0.0
+customtkinter>=5.2.0
+pyobjc-core>=10.0
+pyobjc-framework-Cocoa>=10.0
+pyobjc-framework-Quartz>=10.0
+pyobjc-framework-ScreenCaptureKit>=10.0
