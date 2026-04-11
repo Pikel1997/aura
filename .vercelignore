@@ -1,0 +1,14 @@
+# Vercel only deploys the web/ Next.js frontend.
+# Hide everything Python so Vercel's auto-detection never sees it.
+
+bridge.py
+run.py
+requirements.txt
+wiz_ambient/
+venv/
+logs/
+
+# Macros
+*.pyc
+__pycache__/
+*.swift
