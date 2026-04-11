@@ -206,12 +206,11 @@ function AuraApp() {
 
   // Pre-flight modal flow — controlled by parent (App). Both modals
   // are dismissible and only show when the user takes an action.
+  // The yes/no question shows on every Start click — there's no
+  // "remember my answer" persistence, because answering takes one
+  // tap and is the central flow.
   const [reqsOpen, setReqsOpen] = useState(false);
   const [installOpen, setInstallOpen] = useState(false);
-  const [reqsCompleted, setReqsCompleted] = useState<boolean>(() => {
-    try { return localStorage.getItem("aura.requirements.seen") === "1"; }
-    catch { return false; }
-  });
   // When set, the next time the bridge bootstrap settles into a usable
   // state, automatically start a capture. This is how "click Start →
   // pick option in modal → capture begins" flows without race conditions.
@@ -609,34 +608,23 @@ function AuraApp() {
 
   const handleStartClick = useCallback(() => {
     // Mobile gate: getDisplayMedia + tab capture isn't a real
-    // experience on phones. Show a one-line nudge instead of opening
-    // the requirements modal.
+    // experience on phones. Show a one-line nudge instead.
     if (isMobile) {
       setMobileBlocked(true);
       return;
     }
-    if (!reqsCompleted) {
-      setReqsOpen(true);
-      return;
-    }
-    proceedToCapture();
-  }, [isMobile, reqsCompleted, proceedToCapture]);
-
-  const persistReqs = () => {
-    try { localStorage.setItem("aura.requirements.seen", "1"); }
-    catch { /* ignore */ }
-    setReqsCompleted(true);
-  };
+    // Always show the yes/no question on Start. No persistence —
+    // the modal is the front door to the experience.
+    setReqsOpen(true);
+  }, [isMobile]);
 
   const handleReqsHaveBulb = useCallback(() => {
-    persistReqs();
     setReqsOpen(false);
     setDemoMode(false);
     setPendingStart(true);
   }, []);
 
   const handleReqsNoBulb = useCallback(() => {
-    persistReqs();
     setReqsOpen(false);
     setDemoMode(true);
     setPendingStart(true);
