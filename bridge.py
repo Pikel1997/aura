@@ -17,12 +17,68 @@ http://127.0.0.1:8787 — make sure that port is free.
 
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import os
+import subprocess
 import sys
 
-from wiz_ambient.bulb import BulbController
+
+# ── Bootstrap dependencies ─────────────────────────────────────────────
+# Auto-install pywizlight on first run so users don't have to think
+# about venvs / requirements.txt. Single dependency, single prompt.
+def _ensure_deps():
+    try:
+        import pywizlight  # noqa: F401
+        return
+    except ImportError:
+        pass
+
+    print()
+    print("  Aura needs one Python package to talk to your bulb:")
+    print()
+    print("      pywizlight  (https://pypi.org/project/pywizlight/)")
+    print()
+    if os.environ.get("AURA_AUTO_INSTALL") == "1":
+        answer = "y"
+    else:
+        try:
+            answer = input("  Install it now? [Y/n] ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            answer = "n"
+    if answer not in ("", "y", "yes"):
+        print()
+        print("  OK — install it manually and re-run:")
+        print()
+        print("      pip3 install pywizlight")
+        print("      python3 bridge.py")
+        print()
+        sys.exit(1)
+
+    print()
+    print("  Installing pywizlight…")
+    try:
+        subprocess.check_call(
+            [sys.executable, "-m", "pip", "install",
+             "--quiet", "--disable-pip-version-check", "pywizlight"]
+        )
+    except subprocess.CalledProcessError:
+        print()
+        print("  ✗ pip install failed. On macOS you may need:")
+        print()
+        print("      python3 -m venv venv")
+        print("      source venv/bin/activate")
+        print("      pip install pywizlight")
+        print("      python bridge.py")
+        print()
+        sys.exit(1)
+    print("  ✓ Installed.")
+
+
+_ensure_deps()
+
+from wiz_ambient.bulb import BulbController  # noqa: E402
 
 PORT = 8787
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 
 bulb = BulbController()
 state = {"discovered": [], "last_color": (0, 0, 0), "last_bri": 0}

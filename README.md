@@ -31,13 +31,24 @@ Nothing about your screen ever leaves your machine.
 ```bash
 git clone https://github.com/Pikel1997/aura.git
 cd aura
+python3 bridge.py
+```
+
+The bridge will offer to auto-install its single Python dependency
+(`pywizlight`) on first run, then auto-discover your bulb and print a
+banner. Keep this terminal open.
+
+If you'd rather use a virtualenv:
+
+```bash
 python3 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 python bridge.py
 ```
 
-The bridge auto-discovers your bulb on launch and prints a banner. Keep
-this terminal open.
+If `pip install` fails on macOS with "externally-managed-environment",
+use the venv path above — recent macOS Pythons block global installs by
+default.
 
 ### 2. Open the web app
 
