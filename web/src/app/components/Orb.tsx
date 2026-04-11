@@ -130,6 +130,17 @@ function buildLiveRing(r: number, g: number, b: number): { ring1: string; ring2:
   };
 }
 
+// Same-hue lightness helpers for the mesh-fluid blobs inside the live
+// orb. Both functions return rgba strings in the SAME color family as
+// the input — they only push lightness up or down, never introduce new
+// hues, so the orb stays perceptually one color.
+function lighter(r: number, g: number, b: number, amt: number, alpha: number) {
+  return `rgba(${Math.min(255, r + amt)}, ${Math.min(255, g + amt)}, ${Math.min(255, b + amt)}, ${alpha})`;
+}
+function darker(r: number, g: number, b: number, factor: number, alpha: number) {
+  return `rgba(${Math.round(r * factor)}, ${Math.round(g * factor)}, ${Math.round(b * factor)}, ${alpha})`;
+}
+
 export function Orb({ state, liveColor, bpm, size }: OrbProps) {
   const { t } = useTheme();
   const cfg = configs[state];
@@ -215,19 +226,57 @@ export function Orb({ state, liveColor, bpm, size }: OrbProps) {
           overflow: "hidden",
         }}
       >
-        {/* ── Live-mode overlays — color is the focal element ──
-            White highlights have been removed entirely. The only
-            overlay in live mode is the edge vignette, which gives the
-            orb its rounded depth without polluting the color. */}
-        {liveHex && (
-          <div style={{
-            position: "absolute",
-            inset: 0,
-            borderRadius: "50%",
-            background:
-              "radial-gradient(circle at 50% 50%, transparent 0%, transparent 50%, rgba(0,0,0,0.32) 88%, rgba(0,0,0,0.72) 100%)",
-            pointerEvents: "none",
-          }} />
+        {/* ── Live-mode overlays ──
+            Three drifting mesh-blob gradients in same-hue shades of the
+            live color (lighter/darker only — no new hues), each on a
+            different timing curve, blended via screen/multiply so the
+            base hue stays intact. Edge vignette renders last so the
+            rim still goes dark. */}
+        {liveHex && liveColor && (
+          <>
+            {/* Mesh blob 1 — lighter highlight, screen blend */}
+            <div style={{
+              position: "absolute",
+              inset: "-25%",
+              borderRadius: "50%",
+              background: `radial-gradient(circle at 30% 28%, ${lighter(liveColor.r, liveColor.g, liveColor.b, 70, 0.55)} 0%, transparent 55%)`,
+              mixBlendMode: "screen",
+              pointerEvents: "none",
+              animation: "mesh-drift-1 11s ease-in-out infinite",
+              willChange: "transform",
+            }} />
+            {/* Mesh blob 2 — darker shadow, multiply blend */}
+            <div style={{
+              position: "absolute",
+              inset: "-25%",
+              borderRadius: "50%",
+              background: `radial-gradient(circle at 70% 65%, ${darker(liveColor.r, liveColor.g, liveColor.b, 0.45, 0.65)} 0%, transparent 58%)`,
+              mixBlendMode: "multiply",
+              pointerEvents: "none",
+              animation: "mesh-drift-2 14s ease-in-out infinite",
+              willChange: "transform",
+            }} />
+            {/* Mesh blob 3 — mid highlight, screen, slowest */}
+            <div style={{
+              position: "absolute",
+              inset: "-20%",
+              borderRadius: "50%",
+              background: `radial-gradient(circle at 50% 78%, ${lighter(liveColor.r, liveColor.g, liveColor.b, 35, 0.42)} 0%, transparent 60%)`,
+              mixBlendMode: "screen",
+              pointerEvents: "none",
+              animation: "mesh-drift-3 17s ease-in-out infinite",
+              willChange: "transform",
+            }} />
+            {/* Edge vignette — renders last so the rim still falls off */}
+            <div style={{
+              position: "absolute",
+              inset: 0,
+              borderRadius: "50%",
+              background:
+                "radial-gradient(circle at 50% 50%, transparent 0%, transparent 50%, rgba(0,0,0,0.32) 88%, rgba(0,0,0,0.72) 100%)",
+              pointerEvents: "none",
+            }} />
+          </>
         )}
 
         {/* ── Static-mode overlays (idle, error, etc.) ── */}
@@ -267,6 +316,20 @@ export function Orb({ state, liveColor, bpm, size }: OrbProps) {
         @keyframes orb-breathe-hot {
           0%, 100% { transform: scale(1); }
           50%      { transform: scale(1.10); }
+        }
+        /* Mesh-fluid drift inside the live orb. Three blobs, three
+           timings, three offsets. Same-hue lighter/darker shades only. */
+        @keyframes mesh-drift-1 {
+          0%, 100% { transform: translate(-12%, -8%) scale(1.00); }
+          50%      { transform: translate( 12%,  8%) scale(1.18); }
+        }
+        @keyframes mesh-drift-2 {
+          0%, 100% { transform: translate( 15%, 12%) scale(1.10); }
+          50%      { transform: translate(-12%,-15%) scale(0.92); }
+        }
+        @keyframes mesh-drift-3 {
+          0%, 100% { transform: translate(-10%, 18%) scale(0.88); }
+          50%      { transform: translate( 10%,-12%) scale(1.16); }
         }
         @keyframes orb-glitch {
           0%   { transform: translate(0,0) skewX(0deg); filter: hue-rotate(0deg); }
