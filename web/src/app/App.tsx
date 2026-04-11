@@ -810,6 +810,9 @@ function AuraApp() {
       overflowX: "hidden",
       transition: "background 0.45s ease, color 0.45s ease",
     }}>
+      {/* Skip-to-content link for keyboard users — invisible until focused */}
+      <a href="#main-content" className="aura-skip-link">Skip to content</a>
+
       {/* Hidden capture surfaces */}
       <video ref={videoRef} muted playsInline autoPlay style={{ display: "none" }} />
       <canvas
@@ -925,7 +928,7 @@ function AuraApp() {
         </div>
       </nav>
 
-      <main style={{
+      <main id="main-content" style={{
         position: "relative",
         zIndex: 5,
         display: "flex",

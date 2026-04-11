@@ -20,46 +20,88 @@ export function StatusPill({ variant, children, onClick }: StatusPillProps) {
   const { t } = useTheme();
   const c = colors[variant];
 
-  return (
-    <div
-      onClick={onClick}
+  // Shared visual styles — applied to either a button or a div depending
+  // on whether the pill is interactive.
+  const visual: React.CSSProperties = {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 8,
+    padding: "8px 16px 7px",
+    minHeight: 32,
+    border: `1px solid ${c.border}`,
+    borderRadius: 0,
+    background: c.bg,
+    color: c.text,
+    fontSize: 12,
+    fontFamily: "'Space Mono', monospace",
+    fontWeight: 400,
+    letterSpacing: "0.08em",
+    textTransform: "uppercase",
+    userSelect: "none",
+    transition: "border-color 0.15s, background 0.15s, outline-color 0.15s",
+    filter: t.isDark ? "none" : "saturate(1.1)",
+  };
+
+  const dot = (
+    <span
+      aria-hidden="true"
       style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 8,
-        padding: "6px 14px 5px",
-        border: `1px solid ${c.border}`,
-        borderRadius: 0,
-        background: c.bg,
-        color: c.text,
-        fontSize: 12,
-        fontFamily: "'Space Mono', monospace",
-        fontWeight: 400,
-        letterSpacing: "0.08em",
-        textTransform: "uppercase",
-        cursor: onClick ? "pointer" : "default",
-        userSelect: "none",
-        transition: "border-color 0.15s, background 0.15s",
-        // slightly stronger saturation on light so it reads
-        filter: t.isDark ? "none" : "saturate(1.1)",
-      }}
-    >
-      <span style={{
         display: "inline-block",
-        width: 6,
-        height: 6,
+        width: 7,
+        height: 7,
         borderRadius: "50%",
         background: c.dot,
         flexShrink: 0,
         animation: variant === "checking" ? "dot-blink 1.2s ease-in-out infinite" : "none",
-      }} />
+      }}
+    />
+  );
+
+  // Always-present keyframes
+  const styleTag = (
+    <style>{`
+      @keyframes dot-blink {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.15; }
+      }
+    `}</style>
+  );
+
+  // Interactive: real button with focus ring + role
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        aria-live="polite"
+        style={{
+          ...visual,
+          cursor: "pointer",
+          // Custom focus ring matching the variant color
+          outline: "none",
+        }}
+        onFocus={(e) => {
+          (e.currentTarget as HTMLButtonElement).style.boxShadow =
+            `0 0 0 2px ${c.border}, 0 0 0 4px ${c.dot}55`;
+        }}
+        onBlur={(e) => {
+          (e.currentTarget as HTMLButtonElement).style.boxShadow = "none";
+        }}
+      >
+        {dot}
+        {children}
+        {styleTag}
+      </button>
+    );
+  }
+
+  // Static: a div, but still announced via aria-live so screen readers
+  // pick up state transitions (idle → no-bridge → connected, etc.)
+  return (
+    <div role="status" aria-live="polite" style={visual}>
+      {dot}
       {children}
-      <style>{`
-        @keyframes dot-blink {
-          0%, 100% { opacity: 1; }
-          50% { opacity: 0.15; }
-        }
-      `}</style>
+      {styleTag}
     </div>
   );
 }
