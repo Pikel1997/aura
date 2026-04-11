@@ -84,21 +84,9 @@ export function InstallBridge({ appState, onBridgeOnline }: Props) {
         color: t.text,
         textAlign: "center",
         lineHeight: 1.15,
-        marginBottom: 12,
+        marginBottom: 28,
       }}>
         Install the bridge.
-      </p>
-
-      <p style={{
-        fontSize: 13,
-        color: t.textSubtle,
-        letterSpacing: "0.02em",
-        textAlign: "center",
-        lineHeight: 1.6,
-        maxWidth: 520,
-        margin: "0 auto 32px",
-      }}>
-        One paste in Terminal. Auto-runs on every login after that.
       </p>
 
       {/* Command card */}
@@ -247,26 +235,6 @@ export function InstallBridge({ appState, onBridgeOnline }: Props) {
         ))}
       </div>
 
-      {/* Reassurance footer — minimal */}
-      <p style={{
-        marginTop: 28,
-        fontSize: 11,
-        color: t.textGhost,
-        letterSpacing: "0.06em",
-        textAlign: "center",
-        lineHeight: 1.7,
-      }}>
-        Open source ·{" "}
-        <a
-          href="https://github.com/Pikel1997/aura"
-          target="_blank"
-          rel="noopener noreferrer"
-          style={{ color: t.textMuted, textDecoration: "underline" }}
-        >
-          github.com/Pikel1997/aura
-        </a>
-        {" "}· installs to ~/.aura · nothing leaves your machine
-      </p>
     </section>
   );
 }

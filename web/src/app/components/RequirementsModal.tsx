@@ -32,13 +32,6 @@ export function RequirementsModal({
   const handleDemo = () => onContinueWithoutBulb();
   const handleClose = () => onClose();
 
-  const requirements = [
-    { id: "browser", title: "Chromium browser",       body: "Ready.",                          auto: true  },
-    { id: "bulb",    title: "Philips WiZ bulb",       body: "Any Wi-Fi model.",                auto: false },
-    { id: "wifi",    title: "Same Wi-Fi as this Mac", body: "Bulb and Mac on the same SSID.",  auto: false },
-    { id: "wizapp",  title: "Paired in the WiZ app",  body: "Pair there first, then come back.", auto: false },
-  ];
-
   return (
     <div
       style={{
@@ -55,129 +48,66 @@ export function RequirementsModal({
         animation: "aura-fade-in 0.45s cubic-bezier(0.22, 1, 0.36, 1)",
         fontFamily: "'Space Mono', monospace",
       }}
-      onClick={handleDemo}
+      onClick={handleClose}
     >
       <div
         onClick={(e) => e.stopPropagation()}
         style={{
           width: "100%",
-          maxWidth: 580,
+          maxWidth: 480,
           background: t.bg,
           border: `1px solid ${t.borderStrong}`,
           boxShadow: t.isDark
             ? "0 32px 80px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.04)"
             : "0 32px 80px rgba(0,0,0,0.18), 0 0 0 1px rgba(0,0,0,0.04)",
-          maxHeight: "90vh",
-          overflowY: "auto",
+          padding: "36px 32px 28px",
+          position: "relative",
         }}
       >
-        {/* Header */}
-        <div style={{
-          padding: "24px 28px 20px",
-          borderBottom: `1px solid ${t.border}`,
-          display: "flex",
-          alignItems: "flex-start",
-          justifyContent: "space-between",
-          gap: 20,
+        <button
+          onClick={handleClose}
+          aria-label="Close"
+          style={{
+            position: "absolute",
+            top: 14,
+            right: 16,
+            background: "transparent",
+            border: "none",
+            color: t.textGhost,
+            cursor: "pointer",
+            fontSize: 18,
+            padding: 6,
+            lineHeight: 1,
+            fontFamily: "inherit",
+          }}
+        >
+          ✕
+        </button>
+
+        <p style={{
+          fontSize: 11,
+          fontWeight: 700,
+          letterSpacing: "0.24em",
+          textTransform: "uppercase",
+          color: t.textSubtle,
+          marginBottom: 14,
+          textAlign: "center",
         }}>
-          <div>
-            <p style={{
-              fontSize: 11,
-              fontWeight: 700,
-              letterSpacing: "0.24em",
-              textTransform: "uppercase",
-              color: t.textSubtle,
-              marginBottom: 8,
-            }}>
-              Before you start
-            </p>
-            <p style={{
-              fontFamily: "'Bebas Neue', sans-serif",
-              fontSize: 28,
-              letterSpacing: "0.04em",
-              color: t.text,
-              lineHeight: 1.1,
-            }}>
-              Requirements
-            </p>
-          </div>
-          <button
-            onClick={handleDemo}
-            aria-label="Skip this"
-            style={{
-              background: "transparent",
-              border: "none",
-              color: t.textGhost,
-              cursor: "pointer",
-              fontSize: 16,
-              padding: 4,
-              lineHeight: 1,
-              fontFamily: "inherit",
-            }}
-          >
-            ✕
-          </button>
-        </div>
+          One question
+        </p>
+        <p style={{
+          fontFamily: "'Bebas Neue', sans-serif",
+          fontSize: 32,
+          letterSpacing: "0.04em",
+          color: t.text,
+          lineHeight: 1.1,
+          textAlign: "center",
+          marginBottom: 28,
+        }}>
+          Do you have a Philips WiZ bulb?
+        </p>
 
-        {/* Requirements list */}
-        <div style={{ padding: "8px 0" }}>
-          {requirements.map((req, i) => (
-            <div
-              key={req.id}
-              style={{
-                display: "flex",
-                alignItems: "flex-start",
-                gap: 16,
-                padding: "16px 28px",
-                borderBottom: i < requirements.length - 1
-                  ? `1px solid ${t.border}`
-                  : "none",
-              }}
-            >
-              <div style={{
-                flexShrink: 0,
-                width: 22,
-                height: 22,
-                marginTop: 1,
-                border: `1px solid ${req.auto ? "rgba(48,209,88,0.5)" : t.borderStrong}`,
-                background: req.auto ? "rgba(48,209,88,0.10)" : "transparent",
-                color: req.auto ? "#30d158" : t.textSubtle,
-                fontSize: 12,
-                fontWeight: 700,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-              }}>
-                {req.auto ? "✓" : String(i + 1).padStart(2, "0").slice(0, 2)}
-              </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <p style={{
-                  fontSize: 13,
-                  fontWeight: 700,
-                  color: t.text,
-                  letterSpacing: "0.02em",
-                  marginBottom: 4,
-                  textTransform: "uppercase",
-                }}>
-                  {req.title}
-                </p>
-                <p style={{
-                  fontSize: 12,
-                  color: t.textSubtle,
-                  letterSpacing: "0.02em",
-                  lineHeight: 1.65,
-                }}>
-                  {req.body}
-                </p>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {/* Footer with the two CTAs */}
         <div style={{
-          padding: "20px 28px 24px",
-          borderTop: `1px solid ${t.border}`,
           display: "flex",
           flexDirection: "column",
           gap: 10,
@@ -198,7 +128,7 @@ export function RequirementsModal({
             onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.filter = "brightness(1.1)"; }}
             onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.filter = "none"; }}
           >
-            I have a bulb →
+            Yes — set it up →
           </button>
           <button
             onClick={handleDemo}
@@ -226,7 +156,7 @@ export function RequirementsModal({
               el.style.borderColor = t.borderStrong;
             }}
           >
-            No bulb — show me the orb
+            No — show me the orb
           </button>
         </div>
       </div>
