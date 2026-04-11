@@ -56,20 +56,25 @@ const BRI_EASE = 0.8;
 const DEBUG = typeof window !== "undefined"
   && new URLSearchParams(window.location.search).has("debug");
 
-// Track window width so we can drive the orb size, metric grid columns,
-// and mobile-vs-desktop layout decisions from React. CSS clamp() handles
-// font/padding scaling that doesn't require conditional rendering.
+// Track window dimensions so we can drive the orb size, metric grid
+// columns, mobile detection, and "fit in one viewport" sizing from React.
+// Constraining by min(vw, vh) is what makes the page fit on any screen
+// without scrolling.
 function useViewport() {
-  const [vw, setVw] = useState(
-    typeof window !== "undefined" ? window.innerWidth : 1440
-  );
+  const [size, setSize] = useState(() => ({
+    vw: typeof window !== "undefined" ? window.innerWidth : 1440,
+    vh: typeof window !== "undefined" ? window.innerHeight : 900,
+  }));
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const onResize = () => setVw(window.innerWidth);
+    const onResize = () => setSize({
+      vw: window.innerWidth,
+      vh: window.innerHeight,
+    });
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
   }, []);
-  return vw;
+  return size;
 }
 
 // Read a friendly name for the captured surface. Chrome's behavior
@@ -213,22 +218,32 @@ function AuraApp() {
   const [pendingStart, setPendingStart] = useState(false);
 
   // ── Responsive sizing ──────────────────────────────────────────
-  const vw = useViewport();
+  const { vw, vh } = useViewport();
   const isMobile = vw < 720;
-  const isCompact = vw < 1024; // tablet / small laptop
-  const isXL = vw >= 1800;     // 4K, 27"+
+  const isCompact = vw < 1024;
 
-  // Orb scales with viewport so it actually grows on big monitors.
-  // Idle: 22% of viewport, clamped 220-460. Running: 30% of viewport,
-  // clamped 280-560.
-  const orbIdleSize    = Math.round(Math.min(Math.max(vw * 0.22, 220), 460));
-  const orbRunningSize = Math.round(Math.min(Math.max(vw * 0.30, 280), 560));
+  // Orb scales with viewport so it grows on big monitors AND fits on
+  // short ones. Constrained by both width and height — whichever is
+  // smaller wins, so the layout never overflows the viewport.
+  // Idle state has more headroom (no metric grid below), running has
+  // less (BPM badge + grid + buttons take ~280px under the orb).
+  const orbIdleSize = Math.round(
+    Math.min(Math.max(Math.min(vw * 0.24, vh * 0.45), 200), 480)
+  );
+  const orbRunningSize = Math.round(
+    Math.min(Math.max(Math.min(vw * 0.26, vh * 0.36), 220), 520)
+  );
 
   // Metric grid: 6 columns on desktop, 3 columns × 2 rows on mobile
   const metricColumns = isMobile ? 3 : 6;
   const metricGridWidth = Math.round(
-    Math.min(Math.max(vw * 0.42, 320), 720)
+    Math.min(Math.max(vw * 0.40, 320), 680)
   );
+
+  // Mobile-only: clicking Start shows a one-line "use desktop" message
+  // instead of opening the requirements modal. The message persists
+  // until the user resizes the window or reloads.
+  const [mobileBlocked, setMobileBlocked] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -593,12 +608,19 @@ function AuraApp() {
   }, [demoMode, appState, bulbIp, startCapture]);
 
   const handleStartClick = useCallback(() => {
+    // Mobile gate: getDisplayMedia + tab capture isn't a real
+    // experience on phones. Show a one-line nudge instead of opening
+    // the requirements modal.
+    if (isMobile) {
+      setMobileBlocked(true);
+      return;
+    }
     if (!reqsCompleted) {
       setReqsOpen(true);
       return;
     }
     proceedToCapture();
-  }, [reqsCompleted, proceedToCapture]);
+  }, [isMobile, reqsCompleted, proceedToCapture]);
 
   const persistReqs = () => {
     try { localStorage.setItem("aura.requirements.seen", "1"); }
@@ -1001,11 +1023,15 @@ function AuraApp() {
         display: "flex",
         flexDirection: "column",
         alignItems: "center",
-        paddingTop: isRunning ? "clamp(40px, 4vw, 80px)" : "clamp(56px, 6vw, 120px)",
-        paddingBottom: "clamp(28px, 3vw, 64px)",
+        // Vertically centred fit-in-viewport layout. The dynamic
+        // viewport unit (dvh) handles iOS Safari's collapsing chrome.
+        // Subtract approximate nav + footer heights so we never overflow.
+        justifyContent: "center",
+        height: "calc(100dvh - 120px)",
+        paddingTop: "clamp(20px, 2vw, 48px)",
+        paddingBottom: "clamp(20px, 2vw, 48px)",
         paddingLeft: "clamp(20px, 3vw, 80px)",
         paddingRight: "clamp(20px, 3vw, 80px)",
-        minHeight: "calc(100vh - 66px - 64px)",
       }}>
         {/* Technical annotations — only on screens wide enough that
             they don't crowd the orb. Hidden on mobile / small tablets. */}
@@ -1078,7 +1104,7 @@ function AuraApp() {
           </div>
         </div>
 
-        <div style={{ height: 56 }} />
+        <div style={{ height: "clamp(28px, 3vh, 56px)" }} />
 
         {isRunning && (
           <>
@@ -1107,7 +1133,7 @@ function AuraApp() {
               width: 320,
               height: 1,
               background: t.borderMid,
-              margin: "28px 0",
+              margin: "clamp(14px, 2vh, 28px) 0",
               transition: "background 0.45s ease",
             }} />
 
@@ -1136,7 +1162,7 @@ function AuraApp() {
                     display: "inline-flex",
                     alignItems: "baseline",
                     gap: 10,
-                    marginBottom: 18,
+                    marginBottom: "clamp(12px, 1.6vh, 18px)",
                     padding: "10px 18px 8px",
                     border: `1px solid ${t.borderStrong}`,
                     background: t.surface,
@@ -1170,7 +1196,7 @@ function AuraApp() {
               gridTemplateColumns: `repeat(${metricColumns}, 1fr)`,
               gap: 1,
               background: t.metricsBorder,
-              marginBottom: 36,
+              marginBottom: "clamp(20px, 2.5vh, 36px)",
               width: metricGridWidth,
               maxWidth: "100%",
             }}>
@@ -1215,11 +1241,14 @@ function AuraApp() {
           <>
             <h1 style={{
               fontFamily: "'Bebas Neue', sans-serif",
-              fontSize: "clamp(56px, 12vw, 240px)",
+              // Constrain by both vw and vh so the title can't dominate
+              // shorter screens. min(12vw, 18vh) → 240 cap.
+              fontSize: "min(12vw, 18vh, 240px)",
               letterSpacing: "-0.02em",
               color: t.text,
               lineHeight: 0.9,
-              marginBottom: 18,
+              marginBottom: "clamp(10px, 1.6vh, 18px)",
+              marginTop: 0,
               textAlign: "center",
               transition: "color 0.45s ease",
             }}>AURA</h1>
@@ -1229,7 +1258,7 @@ function AuraApp() {
               color: t.textSubtle,
               letterSpacing: "0.14em",
               textTransform: "uppercase",
-              marginBottom: 36,
+              marginBottom: "clamp(20px, 3vh, 36px)",
               textAlign: "center",
               lineHeight: 1.7,
               transition: "color 0.45s ease",
@@ -1239,9 +1268,28 @@ function AuraApp() {
                 : "Reactive lighting for your screen."}
             </p>
 
-            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 20 }}>
+            <div style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: "clamp(12px, 1.6vh, 20px)",
+            }}>
               {statusPill}
               {primaryAction}
+              {/* Mobile-only nudge — only after the user clicks Start */}
+              {mobileBlocked && (
+                <p style={{
+                  marginTop: 4,
+                  fontSize: 12,
+                  color: t.textMuted,
+                  letterSpacing: "0.08em",
+                  textTransform: "uppercase",
+                  textAlign: "center",
+                  fontFamily: "'Space Mono', monospace",
+                }}>
+                  Best on desktop. Open this on a Mac.
+                </p>
+              )}
             </div>
           </>
         )}
