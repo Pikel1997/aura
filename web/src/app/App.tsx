@@ -608,15 +608,21 @@ function AuraApp() {
 
   const handleStartClick = useCallback(() => {
     // Mobile gate: getDisplayMedia + tab capture isn't a real
-    // experience on phones. Show a one-line nudge instead.
+    // experience on phones.
     if (isMobile) {
       setMobileBlocked(true);
       return;
     }
-    // Always show the yes/no question on Start. No persistence —
-    // the modal is the front door to the experience.
+    // Smart skip: if the bridge is already connected to a bulb, the
+    // yes/no question is redundant — go straight to capture.
+    if (appState === "idle" && bulbIp) {
+      proceedToCapture();
+      return;
+    }
+    // Otherwise, ask whether they have a bulb. The answer routes them
+    // into either the install modal (yes) or demo mode (no).
     setReqsOpen(true);
-  }, [isMobile]);
+  }, [isMobile, appState, bulbIp, proceedToCapture]);
 
   const handleReqsHaveBulb = useCallback(() => {
     setReqsOpen(false);
