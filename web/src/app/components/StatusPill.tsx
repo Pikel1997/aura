@@ -32,7 +32,7 @@ export function StatusPill({ variant, children, onClick }: StatusPillProps) {
         borderRadius: 0,
         background: c.bg,
         color: c.text,
-        fontSize: 11,
+        fontSize: 12,
         fontFamily: "'Space Mono', monospace",
         fontWeight: 400,
         letterSpacing: "0.08em",

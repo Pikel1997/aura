@@ -64,7 +64,7 @@ export function InstallBridge({ appState, onBridgeOnline }: Props) {
       <div style={{ display: "flex", alignItems: "center", gap: 20, marginBottom: 36 }}>
         <div style={{ flex: 1, height: 1, background: t.borderMid }} />
         <p style={{
-          fontSize: 10,
+          fontSize: 12,
           fontWeight: 700,
           letterSpacing: "0.22em",
           textTransform: "uppercase",
@@ -90,7 +90,7 @@ export function InstallBridge({ appState, onBridgeOnline }: Props) {
       </p>
 
       <p style={{
-        fontSize: 12,
+        fontSize: 13,
         color: t.textSubtle,
         letterSpacing: "0.02em",
         textAlign: "center",
@@ -121,7 +121,7 @@ export function InstallBridge({ appState, onBridgeOnline }: Props) {
           background: t.isDark ? "rgba(0,0,0,0.25)" : "rgba(0,0,0,0.04)",
         }}>
           <span style={{
-            fontSize: 9,
+            fontSize: 11,
             letterSpacing: "0.18em",
             textTransform: "uppercase",
             color: t.textSubtle,
@@ -137,7 +137,7 @@ export function InstallBridge({ appState, onBridgeOnline }: Props) {
               border: `1px solid ${copied ? "rgba(48,209,88,0.5)" : t.borderStrong}`,
               color: copied ? (t.isDark ? "#0c0c0a" : "#ffffff") : t.textMuted,
               fontFamily: "'Space Mono', monospace",
-              fontSize: 9,
+              fontSize: 11,
               fontWeight: 700,
               letterSpacing: "0.18em",
               textTransform: "uppercase",
@@ -195,7 +195,7 @@ export function InstallBridge({ appState, onBridgeOnline }: Props) {
             animation: "pulse-dot 1.4s ease-in-out infinite",
           }} />
           <p style={{
-            fontSize: 10,
+            fontSize: 12,
             letterSpacing: "0.22em",
             textTransform: "uppercase",
             color: t.textSubtle,
@@ -233,7 +233,7 @@ export function InstallBridge({ appState, onBridgeOnline }: Props) {
         ].map((step) => (
           <div key={step.n} style={{ background: t.bg, padding: "22px 20px" }}>
             <p style={{
-              fontSize: 11,
+              fontSize: 12,
               color: t.textSubtle,
               letterSpacing: "0.05em",
               marginBottom: 10,
@@ -241,7 +241,7 @@ export function InstallBridge({ appState, onBridgeOnline }: Props) {
               {step.n}
             </p>
             <p style={{
-              fontSize: 12,
+              fontSize: 13,
               fontWeight: 700,
               color: t.textMuted,
               letterSpacing: "0.03em",
@@ -251,7 +251,7 @@ export function InstallBridge({ appState, onBridgeOnline }: Props) {
               {step.title}
             </p>
             <p style={{
-              fontSize: 11,
+              fontSize: 12,
               color: t.textSubtle,
               letterSpacing: "0.02em",
               lineHeight: 1.6,
@@ -265,7 +265,7 @@ export function InstallBridge({ appState, onBridgeOnline }: Props) {
       {/* Reassurance footer */}
       <p style={{
         marginTop: 32,
-        fontSize: 10,
+        fontSize: 12,
         color: t.textGhost,
         letterSpacing: "0.06em",
         textAlign: "center",

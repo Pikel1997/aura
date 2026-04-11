@@ -206,49 +206,19 @@ export function Orb({ state, liveColor, bpm }: OrbProps) {
           overflow: "hidden",
         }}
       >
-        {/* ── Live-mode layered overlays ── */}
+        {/* ── Live-mode overlays — color is the focal element ──
+            White highlights have been removed entirely. The only
+            overlay in live mode is the edge vignette, which gives the
+            orb its rounded depth without polluting the color. */}
         {liveHex && (
-          <>
-            {/* Edge vignette: dark falloff toward the rim. Static, never
-                re-renders, gives the orb its rounded depth regardless of
-                what color the base is. */}
-            <div style={{
-              position: "absolute",
-              inset: 0,
-              borderRadius: "50%",
-              background:
-                "radial-gradient(circle at 50% 50%, transparent 0%, transparent 42%, rgba(0,0,0,0.40) 88%, rgba(0,0,0,0.78) 100%)",
-              pointerEvents: "none",
-            }} />
-
-            {/* Soft top highlight — much subtler now. The colored base
-                should be the dominant visual; this just hints at a lit
-                surface from the upper-left. */}
-            <div style={{
-              position: "absolute",
-              inset: 0,
-              borderRadius: "50%",
-              background:
-                "radial-gradient(circle at 36% 30%, rgba(255,255,255,0.18) 0%, rgba(255,255,255,0.06) 22%, transparent 48%)",
-              pointerEvents: "none",
-              mixBlendMode: "screen",
-            }} />
-
-            {/* Specular hot spot — small subtle dot, dialed way back */}
-            <div style={{
-              position: "absolute",
-              top: "16%",
-              left: "28%",
-              width: "22%",
-              height: "16%",
-              borderRadius: "50%",
-              background:
-                "radial-gradient(ellipse, rgba(255,255,255,0.22) 0%, transparent 70%)",
-              filter: "blur(8px)",
-              pointerEvents: "none",
-              mixBlendMode: "screen",
-            }} />
-          </>
+          <div style={{
+            position: "absolute",
+            inset: 0,
+            borderRadius: "50%",
+            background:
+              "radial-gradient(circle at 50% 50%, transparent 0%, transparent 50%, rgba(0,0,0,0.32) 88%, rgba(0,0,0,0.72) 100%)",
+            pointerEvents: "none",
+          }} />
         )}
 
         {/* ── Static-mode overlays (idle, error, etc.) ── */}
@@ -286,8 +256,8 @@ export function Orb({ state, liveColor, bpm }: OrbProps) {
           50%      { transform: scale(1.07); filter: brightness(1.08); }
         }
         @keyframes orb-breathe-hot {
-          0%, 100% { transform: scale(1);     filter: brightness(0.96); }
-          50%      { transform: scale(1.10);  filter: brightness(1.10); }
+          0%, 100% { transform: scale(1); }
+          50%      { transform: scale(1.10); }
         }
         @keyframes orb-glitch {
           0%   { transform: translate(0,0) skewX(0deg); filter: hue-rotate(0deg); }

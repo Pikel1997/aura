@@ -118,7 +118,7 @@ function ThemeToggle() {
         padding: "5px 11px 4px",
         cursor: "pointer",
         fontFamily: "'Space Mono', monospace",
-        fontSize: 9,
+        fontSize: 11,
         fontWeight: 700,
         letterSpacing: "0.18em",
         textTransform: "uppercase",
@@ -176,8 +176,21 @@ function AuraApp() {
 
   // Demo mode: skip the bridge entirely and run the orb visualization
   // for users who don't have a Philips WiZ bulb yet (or just want to
-  // see what it does). Toggled by the first-load RequirementsModal.
+  // see what it does). Toggled by the RequirementsModal.
   const [demoMode, setDemoMode] = useState(false);
+
+  // Pre-flight modal flow — controlled by parent (App). Both modals
+  // are dismissible and only show when the user takes an action.
+  const [reqsOpen, setReqsOpen] = useState(false);
+  const [installOpen, setInstallOpen] = useState(false);
+  const [reqsCompleted, setReqsCompleted] = useState<boolean>(() => {
+    try { return localStorage.getItem("aura.requirements.seen") === "1"; }
+    catch { return false; }
+  });
+  // When set, the next time the bridge bootstrap settles into a usable
+  // state, automatically start a capture. This is how "click Start →
+  // pick option in modal → capture begins" flows without race conditions.
+  const [pendingStart, setPendingStart] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -508,6 +521,79 @@ function AuraApp() {
     }
   }, [appState, tearDownAudio, setUpAudio, stopCapture]);
 
+  // ── Start-button orchestration ──────────────────────────────────
+  // First click of Start opens the requirements modal. Subsequent
+  // clicks proceed straight to capture (or show the install modal if
+  // the bridge isn't ready). The modals are gated by reqsCompleted.
+  const proceedToCapture = useCallback(() => {
+    if (demoMode) {
+      startCapture();
+      return;
+    }
+    if (appState === "idle" && bulbIp) {
+      startCapture();
+      return;
+    }
+    // Bridge isn't connected yet — open the install modal so the user
+    // sees the curl one-liner. The polling inside InstallBridge will
+    // call checkBridge once the bridge appears.
+    setInstallOpen(true);
+  }, [demoMode, appState, bulbIp, startCapture]);
+
+  const handleStartClick = useCallback(() => {
+    if (!reqsCompleted) {
+      setReqsOpen(true);
+      return;
+    }
+    proceedToCapture();
+  }, [reqsCompleted, proceedToCapture]);
+
+  const persistReqs = () => {
+    try { localStorage.setItem("aura.requirements.seen", "1"); }
+    catch { /* ignore */ }
+    setReqsCompleted(true);
+  };
+
+  const handleReqsHaveBulb = useCallback(() => {
+    persistReqs();
+    setReqsOpen(false);
+    setDemoMode(false);
+    setPendingStart(true);
+  }, []);
+
+  const handleReqsNoBulb = useCallback(() => {
+    persistReqs();
+    setReqsOpen(false);
+    setDemoMode(true);
+    setPendingStart(true);
+  }, []);
+
+  const handleReqsClose = useCallback(() => {
+    setReqsOpen(false);
+  }, []);
+
+  // When pendingStart is set, watch for the app to settle into a state
+  // we can capture from, then trigger startCapture (or open the install
+  // modal if the bridge can't be reached).
+  useEffect(() => {
+    if (!pendingStart) return;
+    if (demoMode && appState === "idle") {
+      setPendingStart(false);
+      startCapture();
+      return;
+    }
+    if (!demoMode && appState === "idle" && bulbIp) {
+      setPendingStart(false);
+      startCapture();
+      return;
+    }
+    if (!demoMode && (appState === "no-bridge" || appState === "no-bulb")) {
+      setPendingStart(false);
+      setInstallOpen(true);
+      return;
+    }
+  }, [pendingStart, demoMode, appState, bulbIp, startCapture]);
+
   useEffect(() => () => { stopCapture(); }, [stopCapture]);
 
   // ── Render ──────────────────────────────────────────────────────
@@ -567,14 +653,20 @@ function AuraApp() {
 
     switch (appState) {
       case "idle":
+      case "no-bridge":
+      case "no-bulb":
+        // Start is always enabled in non-running states. The handler
+        // figures out the right next step (modal / install / capture).
         return (
           <button
-            onClick={startCapture}
+            onClick={handleStartClick}
+            aria-label="Start Aura — open the requirements flow"
             style={{
               ...baseStyle,
               background: accent,
               color: t.isDark ? "#0c0c0a" : "#ffffff",
-              padding: "12px 36px 10px",
+              padding: "14px 40px 12px",
+              minHeight: 48,
             }}
             onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.filter = "brightness(1.1)"; }}
             onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.filter = "none"; }}
@@ -586,11 +678,13 @@ function AuraApp() {
         return (
           <button
             disabled
+            aria-label="Waiting for the browser tab picker"
             style={{
               ...baseStyle,
               background: accent,
               color: t.isDark ? "#0c0c0a" : "#ffffff",
-              padding: "12px 36px 10px",
+              padding: "14px 40px 12px",
+              minHeight: 48,
               opacity: 0.5,
               cursor: "wait",
             }}
@@ -598,19 +692,18 @@ function AuraApp() {
             Waiting for picker…
           </button>
         );
-      case "no-bridge":
-      case "no-bulb":
       case "checking":
         return (
           <button
-            disabled
+            onClick={handleStartClick}
+            aria-label="Start Aura — checking bridge status"
             style={{
               ...baseStyle,
-              background: "transparent",
-              color: t.disabledText,
-              padding: "12px 36px 10px",
-              border: `1px solid ${t.disabledBorder}`,
-              cursor: "not-allowed",
+              background: accent,
+              color: t.isDark ? "#0c0c0a" : "#ffffff",
+              padding: "14px 40px 12px",
+              minHeight: 48,
+              opacity: 0.7,
             }}
           >
             Start Aura →
@@ -782,7 +875,7 @@ function AuraApp() {
             transition: "color 0.45s ease",
           }}>AURA</span>
           <span style={{
-            fontSize: 9,
+            fontSize: 11,
             color: t.textGhost,
             letterSpacing: "0.12em",
             textTransform: "uppercase",
@@ -804,7 +897,7 @@ function AuraApp() {
                 : "none",
             }} />
             <span style={{
-              fontSize: 9,
+              fontSize: 11,
               letterSpacing: "0.18em",
               color: t.textSubtle,
               textTransform: "uppercase",
@@ -819,7 +912,7 @@ function AuraApp() {
             target="_blank"
             rel="noopener noreferrer"
             style={{
-              fontSize: 10,
+              fontSize: 12,
               color: t.textSubtle,
               textDecoration: "none",
               letterSpacing: "0.12em",
@@ -848,7 +941,7 @@ function AuraApp() {
           position: "absolute",
           top: 20,
           left: 36,
-          fontSize: 9,
+          fontSize: 11,
           color: t.annotationColor,
           letterSpacing: "0.08em",
           lineHeight: 1.8,
@@ -862,7 +955,7 @@ function AuraApp() {
           position: "absolute",
           top: 20,
           right: 36,
-          fontSize: 9,
+          fontSize: 11,
           color: t.annotationColor,
           letterSpacing: "0.08em",
           textAlign: "right",
@@ -890,7 +983,7 @@ function AuraApp() {
             pointerEvents: "none",
           }}>
             <div style={{ width: 48, height: 1, background: t.borderMid, transition: "background 0.45s ease" }} />
-            <span style={{ fontSize: 8, color: t.annotationColor, letterSpacing: "0.12em", whiteSpace: "nowrap", transition: "color 0.45s ease" }}>PHILIPS WIZ</span>
+            <span style={{ fontSize: 11, color: t.annotationColor, letterSpacing: "0.12em", whiteSpace: "nowrap", transition: "color 0.45s ease" }}>PHILIPS WIZ</span>
           </div>
           <div style={{
             position: "absolute",
@@ -904,7 +997,7 @@ function AuraApp() {
             flexDirection: "row-reverse",
           }}>
             <div style={{ width: 48, height: 1, background: t.borderMid, transition: "background 0.45s ease" }} />
-            <span style={{ fontSize: 8, color: t.annotationColor, letterSpacing: "0.12em", whiteSpace: "nowrap", transition: "color 0.45s ease" }}>A19 · 800LM</span>
+            <span style={{ fontSize: 11, color: t.annotationColor, letterSpacing: "0.12em", whiteSpace: "nowrap", transition: "color 0.45s ease" }}>A19 · 800LM</span>
           </div>
         </div>
 
@@ -914,7 +1007,7 @@ function AuraApp() {
           <>
             <div style={{ textAlign: "center", marginBottom: 4 }}>
               <p style={{
-                fontSize: 9,
+                fontSize: 11,
                 letterSpacing: "0.28em",
                 textTransform: "uppercase",
                 color: t.textSubtle,
@@ -941,13 +1034,47 @@ function AuraApp() {
               transition: "background 0.45s ease",
             }} />
 
+            {/* BPM badge — only when audio is shared and a beat lock-on
+                has happened. The orb's pulse is also locked to this. */}
+            {liveBpm && liveBpm > 60 && (
+              <div
+                aria-live="polite"
+                style={{
+                  display: "inline-flex",
+                  alignItems: "baseline",
+                  gap: 8,
+                  marginBottom: 18,
+                  padding: "8px 16px 6px",
+                  border: `1px solid ${t.borderStrong}`,
+                  background: t.surface,
+                }}
+              >
+                <span style={{
+                  fontFamily: "'Bebas Neue', sans-serif",
+                  fontSize: 22,
+                  letterSpacing: "0.06em",
+                  color: t.text,
+                }}>
+                  {Math.round(liveBpm)}
+                </span>
+                <span style={{
+                  fontSize: 12,
+                  letterSpacing: "0.22em",
+                  textTransform: "uppercase",
+                  color: t.textSubtle,
+                }}>
+                  BPM
+                </span>
+              </div>
+            )}
+
             <div style={{
               display: "grid",
               gridTemplateColumns: "repeat(6, 1fr)",
               gap: 1,
               background: t.metricsBorder,
               marginBottom: 36,
-              width: 440,
+              width: 460,
             }}>
               {[
                 { label: "R", value: metrics.r },
@@ -964,7 +1091,7 @@ function AuraApp() {
                   transition: "background 0.45s ease",
                 }}>
                   <p style={{
-                    fontSize: 8,
+                    fontSize: 11,
                     letterSpacing: "0.18em",
                     textTransform: "uppercase",
                     color: t.textSubtle,
@@ -1000,7 +1127,7 @@ function AuraApp() {
             }}>AURA</h1>
 
             <p style={{
-              fontSize: 12,
+              fontSize: 13,
               color: t.textSubtle,
               letterSpacing: "0.14em",
               textTransform: "uppercase",
@@ -1021,75 +1148,8 @@ function AuraApp() {
           </>
         )}
 
-        {/* Install panel: visible in every state except "running" and
-            demo mode. Demo mode skips the bridge entirely so install
-            instructions would be confusing. */}
-        {!isRunning && !demoMode && (
-          <div style={{ width: "100%", maxWidth: 860, marginTop: 80 }}>
-            <InstallBridge appState={appState} onBridgeOnline={checkBridge} />
-          </div>
-        )}
-
-        {/* Demo-mode helper card — lets users get a real bulb later
-            without reloading the page. */}
-        {!isRunning && demoMode && (
-          <div style={{
-            width: "100%",
-            maxWidth: 580,
-            marginTop: 80,
-            padding: "22px 28px",
-            background: t.surface,
-            border: `1px solid ${t.border}`,
-            textAlign: "center",
-            fontFamily: "'Space Mono', monospace",
-          }}>
-            <p style={{
-              fontSize: 9,
-              fontWeight: 700,
-              letterSpacing: "0.22em",
-              textTransform: "uppercase",
-              color: t.textSubtle,
-              marginBottom: 8,
-            }}>
-              Demo mode
-            </p>
-            <p style={{
-              fontSize: 12,
-              color: t.textMuted,
-              letterSpacing: "0.02em",
-              lineHeight: 1.7,
-              marginBottom: 14,
-            }}>
-              You're seeing the orb only — no physical bulb is being
-              controlled. Get a Philips WiZ smart bulb and switch
-              modes anytime.
-            </p>
-            <button
-              onClick={() => setDemoMode(false)}
-              style={{
-                background: "transparent",
-                color: t.text,
-                border: `1px solid ${t.borderStrong}`,
-                padding: "8px 20px 7px",
-                fontFamily: "'Bebas Neue', sans-serif",
-                fontSize: 13,
-                letterSpacing: "0.12em",
-                cursor: "pointer",
-                transition: "all 0.15s",
-              }}
-              onMouseEnter={(e) => {
-                (e.currentTarget as HTMLButtonElement).style.borderColor = t.isDark
-                  ? "rgba(255,255,255,0.28)"
-                  : "rgba(0,0,0,0.28)";
-              }}
-              onMouseLeave={(e) => {
-                (e.currentTarget as HTMLButtonElement).style.borderColor = t.borderStrong;
-              }}
-            >
-              I have a bulb — switch to bulb mode
-            </button>
-          </div>
-        )}
+        {/* Page is intentionally clean below the orb — instructions
+            and install steps live in modals triggered by Start Aura. */}
       </main>
 
       <footer style={{
@@ -1104,14 +1164,14 @@ function AuraApp() {
         marginBottom: DEBUG ? 44 : 0,
       }}>
         <p style={{
-          fontSize: 9,
+          fontSize: 11,
           color: t.textGhost,
           letterSpacing: "0.14em",
           textTransform: "uppercase",
           transition: "color 0.45s ease",
         }}>Open source under MIT.</p>
         <p style={{
-          fontSize: 9,
+          fontSize: 11,
           color: t.annotationColor,
           letterSpacing: "0.08em",
           transition: "color 0.45s ease",
@@ -1148,7 +1208,7 @@ function AuraApp() {
                   ? (t.isDark ? "#0c0c0a" : "#ffffff")
                   : t.switcherInactive,
                 fontFamily: "'Space Mono', monospace",
-                fontSize: 8,
+                fontSize: 11,
                 fontWeight: 700,
                 letterSpacing: "0.14em",
                 textTransform: "uppercase",
@@ -1169,16 +1229,96 @@ function AuraApp() {
         </div>
       )}
 
-      {/* First-load requirements modal — only shown once per browser */}
+      {/* Pre-flight requirements modal — opened on first Start click */}
       <RequirementsModal
-        onContinueWithBulb={() => setDemoMode(false)}
-        onContinueWithoutBulb={() => setDemoMode(true)}
+        open={reqsOpen}
+        onContinueWithBulb={handleReqsHaveBulb}
+        onContinueWithoutBulb={handleReqsNoBulb}
+        onClose={handleReqsClose}
       />
+
+      {/* Install modal — opened when Start was clicked but the bridge
+          isn't reachable. The InstallBridge component does its own
+          /health polling and calls checkBridge once it sees the bridge,
+          which advances the state and lets the user click Start again. */}
+      {installOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Install Aura bridge"
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 1000,
+            background: t.isDark ? "rgba(8,8,6,0.92)" : "rgba(220,216,208,0.92)",
+            backdropFilter: "blur(6px)",
+            WebkitBackdropFilter: "blur(6px)",
+            display: "flex",
+            alignItems: "flex-start",
+            justifyContent: "center",
+            padding: "48px 24px",
+            overflowY: "auto",
+            animation: "aura-fade-in 0.45s cubic-bezier(0.22, 1, 0.36, 1)",
+          }}
+          onClick={() => setInstallOpen(false)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: "100%",
+              maxWidth: 720,
+              background: t.bg,
+              border: `1px solid ${t.borderStrong}`,
+              padding: "28px 32px 32px",
+              boxShadow: t.isDark
+                ? "0 32px 80px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.04)"
+                : "0 32px 80px rgba(0,0,0,0.18), 0 0 0 1px rgba(0,0,0,0.04)",
+              position: "relative",
+            }}
+          >
+            <button
+              onClick={() => setInstallOpen(false)}
+              aria-label="Close install dialog"
+              style={{
+                position: "absolute",
+                top: 16,
+                right: 20,
+                background: "transparent",
+                border: "none",
+                color: t.textGhost,
+                cursor: "pointer",
+                fontSize: 18,
+                padding: 6,
+                lineHeight: 1,
+                fontFamily: "inherit",
+                minHeight: 32,
+                minWidth: 32,
+              }}
+            >
+              ✕
+            </button>
+            <InstallBridge
+              appState={appState}
+              onBridgeOnline={() => {
+                checkBridge();
+                // The pendingStart effect will pick up the new "idle"
+                // state and trigger startCapture automatically.
+                setPendingStart(true);
+                setInstallOpen(false);
+              }}
+            />
+          </div>
+        </div>
+      )}
 
       <style>{`
         @keyframes pulse-dot {
           0%, 100% { opacity: 1; transform: scale(1); }
           50% { opacity: 0.4; transform: scale(0.7); }
+        }
+        @keyframes aura-fade-in {
+          from { opacity: 0; transform: translateY(8px); }
+          to   { opacity: 1; transform: translateY(0); }
         }
       `}</style>
     </div>

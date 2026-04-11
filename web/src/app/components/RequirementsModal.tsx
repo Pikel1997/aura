@@ -1,63 +1,36 @@
-import { useEffect, useState } from "react";
 import { useTheme } from "./ThemeContext";
 
-const STORAGE_KEY = "aura.requirements.seen";
-
 interface Props {
+  /** Whether the modal is currently visible. Parent-controlled. */
+  open: boolean;
   /** Called when the user picks "I have a bulb". */
   onContinueWithBulb: () => void;
   /** Called when the user picks "No bulb, demo only". */
   onContinueWithoutBulb: () => void;
+  /** Called when the user dismisses the modal without picking. */
+  onClose: () => void;
 }
 
 /**
- * First-load requirements modal. Lays out what Aura needs (a Philips
+ * Pre-flight requirements modal. Lays out what Aura needs (a Philips
  * WiZ bulb on the same Wi-Fi as this Mac) and gives the user two
- * paths: real-bulb mode (the default) or a "no-bulb / demo" mode that
- * runs the orb visualization without ever talking to a bulb.
- *
- * Only shown on first load — dismiss state is persisted in
- * localStorage so returning users go straight to the page.
+ * paths: real-bulb mode or a "no-bulb / demo" mode that runs the orb
+ * visualization without ever talking to a bulb. Triggered when the
+ * user clicks Start Aura for the first time.
  */
 export function RequirementsModal({
+  open,
   onContinueWithBulb,
   onContinueWithoutBulb,
+  onClose,
 }: Props) {
   const { t } = useTheme();
-  const [open, setOpen] = useState(false);
-
-  useEffect(() => {
-    try {
-      const seen = localStorage.getItem(STORAGE_KEY);
-      if (!seen) {
-        // Small delay so the page has time to fade in first
-        const id = window.setTimeout(() => setOpen(true), 350);
-        return () => window.clearTimeout(id);
-      }
-    } catch {
-      // localStorage blocked (private mode) — show anyway, won't persist
-      setOpen(true);
-    }
-  }, []);
-
-  const dismiss = () => {
-    try {
-      localStorage.setItem(STORAGE_KEY, "1");
-    } catch { /* ignore */ }
-    setOpen(false);
-  };
 
   if (!open) return null;
 
-  const handleBulb = () => {
-    dismiss();
-    onContinueWithBulb();
-  };
-
-  const handleDemo = () => {
-    dismiss();
-    onContinueWithoutBulb();
-  };
+  const handleBulb = () => onContinueWithBulb();
+  const handleDemo = () => onContinueWithoutBulb();
+  const handleClose = () => onClose();
 
   // Lightweight stack-style requirements list
   const requirements = [
@@ -130,7 +103,7 @@ export function RequirementsModal({
         }}>
           <div>
             <p style={{
-              fontSize: 9,
+              fontSize: 11,
               fontWeight: 700,
               letterSpacing: "0.24em",
               textTransform: "uppercase",
@@ -190,7 +163,7 @@ export function RequirementsModal({
                 border: `1px solid ${req.auto ? "rgba(48,209,88,0.5)" : t.borderStrong}`,
                 background: req.auto ? "rgba(48,209,88,0.10)" : "transparent",
                 color: req.auto ? "#30d158" : t.textSubtle,
-                fontSize: 11,
+                fontSize: 12,
                 fontWeight: 700,
                 display: "flex",
                 alignItems: "center",
@@ -200,7 +173,7 @@ export function RequirementsModal({
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <p style={{
-                  fontSize: 12,
+                  fontSize: 13,
                   fontWeight: 700,
                   color: t.text,
                   letterSpacing: "0.02em",
@@ -210,7 +183,7 @@ export function RequirementsModal({
                   {req.title}
                 </p>
                 <p style={{
-                  fontSize: 11,
+                  fontSize: 12,
                   color: t.textSubtle,
                   letterSpacing: "0.02em",
                   lineHeight: 1.65,
@@ -278,7 +251,7 @@ export function RequirementsModal({
           </button>
           <p style={{
             marginTop: 6,
-            fontSize: 9,
+            fontSize: 11,
             color: t.textGhost,
             letterSpacing: "0.06em",
             textAlign: "center",
