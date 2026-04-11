@@ -100,6 +100,12 @@ interface OrbProps {
    * 60-180 BPM, smoothed. Falls back to the default rhythm when null.
    */
   bpm?: number | null;
+  /**
+   * Override the size from the per-state config. Used for responsive
+   * scaling — App.tsx computes this from window.innerWidth so the orb
+   * grows on large monitors and shrinks on phones.
+   */
+  size?: number;
 }
 
 // In running mode the orb is rendered as layered divs instead of a
@@ -124,10 +130,13 @@ function buildLiveRing(r: number, g: number, b: number): { ring1: string; ring2:
   };
 }
 
-export function Orb({ state, liveColor, bpm }: OrbProps) {
+export function Orb({ state, liveColor, bpm, size }: OrbProps) {
   const { t } = useTheme();
   const cfg = configs[state];
   const isRunning = state === "running";
+  // Responsive override: when App.tsx passes a size, use it instead
+  // of the per-state default. Falls back to the config size otherwise.
+  const renderSize = size ?? cfg.size;
 
   // BPM → breathe duration. Each beat is one full pulse cycle.
   // Doubled (half-time) when faster than 130 BPM so the orb doesn't
@@ -154,8 +163,8 @@ export function Orb({ state, liveColor, bpm }: OrbProps) {
     <div
       style={{
         position: "relative",
-        width: cfg.size,
-        height: cfg.size,
+        width: renderSize,
+        height: renderSize,
         flexShrink: 0,
         transition: "width 1.4s cubic-bezier(0.22,1,0.36,1), height 1.4s cubic-bezier(0.22,1,0.36,1)",
       }}

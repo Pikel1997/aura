@@ -56,6 +56,22 @@ const BRI_EASE = 0.8;
 const DEBUG = typeof window !== "undefined"
   && new URLSearchParams(window.location.search).has("debug");
 
+// Track window width so we can drive the orb size, metric grid columns,
+// and mobile-vs-desktop layout decisions from React. CSS clamp() handles
+// font/padding scaling that doesn't require conditional rendering.
+function useViewport() {
+  const [vw, setVw] = useState(
+    typeof window !== "undefined" ? window.innerWidth : 1440
+  );
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onResize = () => setVw(window.innerWidth);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+  return vw;
+}
+
 // Read a friendly name for the captured surface. Chrome's behavior
 // here depends on the version and which surface the user picks:
 //
@@ -195,6 +211,24 @@ function AuraApp() {
   // state, automatically start a capture. This is how "click Start →
   // pick option in modal → capture begins" flows without race conditions.
   const [pendingStart, setPendingStart] = useState(false);
+
+  // ── Responsive sizing ──────────────────────────────────────────
+  const vw = useViewport();
+  const isMobile = vw < 720;
+  const isCompact = vw < 1024; // tablet / small laptop
+  const isXL = vw >= 1800;     // 4K, 27"+
+
+  // Orb scales with viewport so it actually grows on big monitors.
+  // Idle: 22% of viewport, clamped 220-460. Running: 30% of viewport,
+  // clamped 280-560.
+  const orbIdleSize    = Math.round(Math.min(Math.max(vw * 0.22, 220), 460));
+  const orbRunningSize = Math.round(Math.min(Math.max(vw * 0.30, 280), 560));
+
+  // Metric grid: 6 columns on desktop, 3 columns × 2 rows on mobile
+  const metricColumns = isMobile ? 3 : 6;
+  const metricGridWidth = Math.round(
+    Math.min(Math.max(vw * 0.42, 320), 720)
+  );
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -729,7 +763,14 @@ function AuraApp() {
         );
       case "running":
         return (
-          <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+          <div style={{
+            display: "flex",
+            gap: 12,
+            alignItems: "center",
+            flexDirection: isMobile ? "column" : "row",
+            width: isMobile ? "100%" : "auto",
+            maxWidth: isMobile ? 320 : "none",
+          }}>
             <button
               onClick={switchTab}
               style={{
@@ -855,7 +896,7 @@ function AuraApp() {
       }}>
         <p style={{
           fontFamily: "'Bebas Neue', sans-serif",
-          fontSize: "clamp(180px, 28vw, 420px)",
+          fontSize: "clamp(140px, 32vw, 720px)",
           letterSpacing: "-0.04em",
           color: "transparent",
           WebkitTextStroke: `1px ${accent}`,
@@ -883,48 +924,56 @@ function AuraApp() {
         display: "flex",
         alignItems: "center",
         justifyContent: "space-between",
-        padding: "20px 36px",
+        padding: "clamp(14px, 1.6vw, 28px) clamp(20px, 3vw, 56px)",
         borderBottom: `1px solid ${t.border}`,
         transition: "border-color 0.45s ease",
       }}>
         <div style={{ display: "flex", alignItems: "baseline", gap: 14 }}>
           <span style={{
             fontFamily: "'Bebas Neue', sans-serif",
-            fontSize: 20,
+            fontSize: "clamp(18px, 1.6vw, 28px)",
             letterSpacing: "0.18em",
             color: t.text,
             transition: "color 0.45s ease",
           }}>AURA</span>
-          <span style={{
-            fontSize: 11,
-            color: t.textGhost,
-            letterSpacing: "0.12em",
-            textTransform: "uppercase",
-            transition: "color 0.45s ease",
-          }}>v0.1.0</span>
-        </div>
-
-        <div style={{ display: "flex", alignItems: "center", gap: 22 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <div style={{
-              width: 5,
-              height: 5,
-              borderRadius: "50%",
-              background: accent,
-              boxShadow: `0 0 6px ${accent}`,
-              transition: "background 0.6s, box-shadow 0.6s",
-              animation: appState === "checking" || appState === "running"
-                ? "pulse-dot 1.4s ease-in-out infinite"
-                : "none",
-            }} />
+          {!isMobile && (
             <span style={{
               fontSize: 11,
-              letterSpacing: "0.18em",
-              color: t.textSubtle,
+              color: t.textGhost,
+              letterSpacing: "0.12em",
               textTransform: "uppercase",
               transition: "color 0.45s ease",
-            }}>{STATE_LABELS[appState]}</span>
-          </div>
+            }}>v0.1.0</span>
+          )}
+        </div>
+
+        <div style={{
+          display: "flex",
+          alignItems: "center",
+          gap: isMobile ? 14 : 22,
+        }}>
+          {!isMobile && (
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <div style={{
+                width: 5,
+                height: 5,
+                borderRadius: "50%",
+                background: accent,
+                boxShadow: `0 0 6px ${accent}`,
+                transition: "background 0.6s, box-shadow 0.6s",
+                animation: appState === "checking" || appState === "running"
+                  ? "pulse-dot 1.4s ease-in-out infinite"
+                  : "none",
+              }} />
+              <span style={{
+                fontSize: 11,
+                letterSpacing: "0.18em",
+                color: t.textSubtle,
+                textTransform: "uppercase",
+                transition: "color 0.45s ease",
+              }}>{STATE_LABELS[appState]}</span>
+            </div>
+          )}
 
           <ThemeToggle />
 
@@ -952,46 +1001,53 @@ function AuraApp() {
         display: "flex",
         flexDirection: "column",
         alignItems: "center",
-        paddingTop: isRunning ? 60 : 80,
-        paddingBottom: 40,
-        paddingLeft: 36,
-        paddingRight: 36,
+        paddingTop: isRunning ? "clamp(40px, 4vw, 80px)" : "clamp(56px, 6vw, 120px)",
+        paddingBottom: "clamp(28px, 3vw, 64px)",
+        paddingLeft: "clamp(20px, 3vw, 80px)",
+        paddingRight: "clamp(20px, 3vw, 80px)",
         minHeight: "calc(100vh - 66px - 64px)",
       }}>
-        <div style={{
-          position: "absolute",
-          top: 20,
-          left: 36,
-          fontSize: 11,
-          color: t.annotationColor,
-          letterSpacing: "0.08em",
-          lineHeight: 1.8,
-          userSelect: "none",
-          transition: "color 0.45s ease",
-        }}>
-          {annotationLeft.map((line) => <div key={line}>{line}</div>)}
-        </div>
+        {/* Technical annotations — only on screens wide enough that
+            they don't crowd the orb. Hidden on mobile / small tablets. */}
+        {!isCompact && (
+          <>
+            <div style={{
+              position: "absolute",
+              top: 20,
+              left: "clamp(20px, 3vw, 80px)",
+              fontSize: 11,
+              color: t.annotationColor,
+              letterSpacing: "0.08em",
+              lineHeight: 1.8,
+              userSelect: "none",
+              transition: "color 0.45s ease",
+            }}>
+              {annotationLeft.map((line) => <div key={line}>{line}</div>)}
+            </div>
 
-        <div style={{
-          position: "absolute",
-          top: 20,
-          right: 36,
-          fontSize: 11,
-          color: t.annotationColor,
-          letterSpacing: "0.08em",
-          textAlign: "right",
-          lineHeight: 1.8,
-          userSelect: "none",
-          transition: "color 0.45s ease",
-        }}>
-          {annotationRight.map((line) => <div key={line}>{line}</div>)}
-        </div>
+            <div style={{
+              position: "absolute",
+              top: 20,
+              right: "clamp(20px, 3vw, 80px)",
+              fontSize: 11,
+              color: t.annotationColor,
+              letterSpacing: "0.08em",
+              textAlign: "right",
+              lineHeight: 1.8,
+              userSelect: "none",
+              transition: "color 0.45s ease",
+            }}>
+              {annotationRight.map((line) => <div key={line}>{line}</div>)}
+            </div>
+          </>
+        )}
 
         <div style={{ position: "relative" }}>
           <Orb
             state={appState}
             liveColor={isRunning ? { r: metrics.r, g: metrics.g, b: metrics.b } : undefined}
             bpm={isRunning ? liveBpm : null}
+            size={isRunning ? orbRunningSize : orbIdleSize}
           />
           <div style={{
             position: "absolute",
@@ -1111,11 +1167,12 @@ function AuraApp() {
 
             <div style={{
               display: "grid",
-              gridTemplateColumns: "repeat(6, 1fr)",
+              gridTemplateColumns: `repeat(${metricColumns}, 1fr)`,
               gap: 1,
               background: t.metricsBorder,
               marginBottom: 36,
-              width: 460,
+              width: metricGridWidth,
+              maxWidth: "100%",
             }}>
               {[
                 { label: "R", value: metrics.r },
@@ -1158,7 +1215,7 @@ function AuraApp() {
           <>
             <h1 style={{
               fontFamily: "'Bebas Neue', sans-serif",
-              fontSize: "clamp(72px, 10vw, 120px)",
+              fontSize: "clamp(56px, 12vw, 240px)",
               letterSpacing: "-0.02em",
               color: t.text,
               lineHeight: 0.9,
@@ -1197,7 +1254,7 @@ function AuraApp() {
         position: "relative",
         zIndex: 5,
         borderTop: `1px solid ${t.border}`,
-        padding: "20px 36px",
+        padding: "clamp(14px, 1.6vw, 28px) clamp(20px, 3vw, 56px)",
         display: "flex",
         alignItems: "center",
         justifyContent: "space-between",
