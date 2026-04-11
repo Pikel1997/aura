@@ -557,6 +557,17 @@ function AuraApp() {
             textTransform: "uppercase",
             transition: "color 0.45s ease",
           }}>v0.1.0</span>
+          {/* DEPLOY MARKER — temporary, remove once verified */}
+          <span style={{
+            fontSize: 10,
+            color: "#ff3c28",
+            letterSpacing: "0.14em",
+            textTransform: "uppercase",
+            fontWeight: 700,
+            marginLeft: 6,
+            padding: "2px 8px 1px",
+            border: "1px solid rgba(255,60,40,0.5)",
+          }}>HEY I'M KUNAL</span>
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: 22 }}>
