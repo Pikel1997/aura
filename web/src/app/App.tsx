@@ -55,30 +55,50 @@ const BRI_EASE = 0.8;
 const DEBUG = typeof window !== "undefined"
   && new URLSearchParams(window.location.search).has("debug");
 
-// Convert MediaStreamTrack.label to a human-friendly tab name. Chrome
-// sometimes returns the technical stream identifier
-// (web-contents-media-stream://N:M) instead of the actual title — fall
-// back to the captured surface type when that happens.
+// Read a friendly name for the captured surface. Chrome's behavior
+// here depends on the version and which surface the user picks:
+//
+//   - Tab capture          → usually the tab's <title>, sometimes the
+//                            URL, sometimes "web-contents-media-stream://"
+//   - Window capture       → window title (e.g. "Visual Studio Code")
+//   - Whole-screen capture → "Screen 1" or empty
+//
+// We only filter the specific known-bad "web-contents-media-stream:"
+// internal identifier. Anything else — title, URL, hostname — is shown
+// verbatim because it's almost always more useful than a generic
+// fallback. Only fall back to the surface type when the label is
+// genuinely empty.
 function friendlyTabName(track: MediaStreamTrack): string {
   const label = (track.label || "").trim();
   let surface: string | undefined;
+  let settingsSnapshot: unknown;
   try {
-    surface = (track.getSettings() as { displaySurface?: string }).displaySurface;
+    const s = track.getSettings();
+    settingsSnapshot = s;
+    surface = (s as { displaySurface?: string }).displaySurface;
   } catch {
     surface = undefined;
   }
-  const looksTechnical =
-    !label
-    || /^[a-z][a-z0-9.+-]*:\/\//i.test(label)
-    || label.startsWith("web-contents-")
-    || label.startsWith("stream:");
-  if (looksTechnical) {
-    if (surface === "browser") return "Browser tab";
-    if (surface === "window") return "Application window";
-    if (surface === "monitor") return "Entire screen";
-    return "Captured source";
+
+  // Debug: log exactly what Chrome handed us so we can iterate.
+  // Open DevTools → Console after clicking Start Aura.
+  // eslint-disable-next-line no-console
+  console.log("[Aura] track label/settings:", {
+    label,
+    surface,
+    settings: settingsSnapshot,
+  });
+
+  // Drop only the specific Chrome internal identifier
+  if (label && !label.startsWith("web-contents-media-stream:")) {
+    return label;
   }
-  return label;
+
+  // Truly empty / internal-only — fall back by surface
+  if (surface === "browser") return "Browser tab";
+  if (surface === "window") return "Application window";
+  if (surface === "monitor") return "Entire screen";
+  return "Captured source";
 }
 
 // ── Theme toggle ─────────────────────────────────────────────────
