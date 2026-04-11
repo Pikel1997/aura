@@ -20,13 +20,40 @@ watch your room glow with whatever's playing.
 The web app handles tab capture and color extraction entirely in the
 browser. WiZ bulbs only speak UDP on your LAN, so a tiny local Python
 bridge translates HTTP requests from the page into UDP commands. The
-bridge is ~80 lines, has no auth, and listens only on `127.0.0.1:8787`.
+bridge listens only on `127.0.0.1:8787` and registers a launchd agent
+so it auto-starts on every login — you only have to set it up once.
 
 Nothing about your screen ever leaves your machine.
 
-## Quick start
+## Quick start (the easy way)
 
-### 1. Run the bridge
+Open your deployed Aura page in Chrome. The page shows a one-line
+installer card. Click **Copy**, open Terminal once (⌘+Space → "Terminal"),
+paste, hit return:
+
+```bash
+curl -fsSL https://YOUR-DEPLOYMENT.vercel.app/install.sh | bash
+```
+
+The script downloads the bridge into `~/.aura/`, installs `pywizlight`
+in a virtualenv, registers a launchd LaunchAgent so the bridge starts
+on every login, brings your browser back to the front, and closes the
+Terminal window. Total time: ~30 seconds.
+
+You'll never see this screen again — the next time you open Aura, the
+bridge is already running and you go straight to picking a tab.
+
+To **uninstall** later:
+
+```bash
+curl -fsSL https://YOUR-DEPLOYMENT.vercel.app/uninstall.sh | bash
+```
+
+This stops the launchd agent and removes `~/.aura/` and the plist.
+
+## Quick start (the manual way)
+
+If you'd rather see what you're running:
 
 ```bash
 git clone https://github.com/Pikel1997/aura.git
@@ -35,10 +62,12 @@ python3 bridge.py
 ```
 
 The bridge will offer to auto-install its single Python dependency
-(`pywizlight`) on first run, then auto-discover your bulb and print a
-banner. Keep this terminal open.
+(`pywizlight`) on first run. Then visit your deployed Aura page (or
+run the frontend locally — see [`web/README.md`](web/README.md)) and
+click **Start Aura**.
 
-If you'd rather use a virtualenv:
+If `pip install` complains with "externally-managed-environment" on
+recent macOS, use a virtualenv:
 
 ```bash
 python3 -m venv venv && source venv/bin/activate
@@ -46,45 +75,45 @@ pip install -r requirements.txt
 python bridge.py
 ```
 
-If `pip install` fails on macOS with "externally-managed-environment",
-use the venv path above — recent macOS Pythons block global installs by
-default.
-
-### 2. Open the web app
-
-Visit your deployed Aura page (or run it locally — see
-[`web/README.md`](web/README.md)).
-
-Click **Start Aura**, pick a Chrome tab, done.
-
 ## Repo layout
 
 ```
 aura/
-├── bridge.py          ← local HTTP↔UDP bridge (80 LOC)
+├── bridge.py                 ← local HTTP↔UDP bridge (~150 LOC, stdlib)
 ├── wiz_ambient/
-│   ├── bulb.py        ← BulbController: WiZ discovery, eased animator
-│   ├── video.py       ← (legacy desktop app)
-│   ├── audio.py       ← (legacy desktop app)
-│   └── app.py         ← (legacy desktop app — see below)
-├── web/               ← Next.js + Tailwind + Framer Motion frontend
-│   ├── app/
-│   ├── components/
-│   └── lib/
-├── requirements.txt   ← Python deps for the bridge
-└── vercel.json        ← Vercel monorepo config
+│   ├── bulb.py               ← BulbController: WiZ discovery, eased animator
+│   ├── video.py              ← (legacy desktop app)
+│   ├── audio.py              ← (legacy desktop app)
+│   └── app.py                ← (legacy desktop app — see below)
+├── web/                      ← Vite + React + Tailwind v4 frontend
+│   ├── public/
+│   │   ├── install.sh        ← one-line bridge installer
+│   │   └── uninstall.sh      ← one-line bridge uninstaller
+│   ├── src/
+│   │   ├── app/
+│   │   │   ├── App.tsx       ← single-page experience + state machine
+│   │   │   └── components/   ← Orb, InstallBridge, StatusPill, …
+│   │   ├── lib/
+│   │   │   ├── bridge.ts     ← typed API client for the local bridge
+│   │   │   └── colors.ts     ← chroma²-weighted blend (TS port of video.py)
+│   │   └── main.tsx
+│   ├── vite.config.ts
+│   └── package.json
+├── requirements.txt          ← Python deps for the bridge
+├── README.md                 ← (you are here)
+└── .vercelignore             ← hides Python from Vercel scanner
 ```
 
 ## Color algorithm
 
-Same algorithm in Python (`wiz_ambient/video.py`) and TypeScript
-(`web/lib/colors.ts`):
+The same algorithm runs in Python (`wiz_ambient/video.py`) and
+TypeScript (`web/src/lib/colors.ts`):
 
 1. Sample the edge ring of the captured tab (top/bottom/left/right
    strips, ~15% width each)
 2. Linearize sRGB → linear light (gamma 2.2)
 3. Compute per-pixel luminance (Rec. 709) and HSV-style chroma
-4. **Achromatic check**: if average chroma is below 0.12, output white
+4. **Achromatic check**: if mean chroma is below 0.12, output white
    scaled by luminance. Stops white movie scenes from getting a yellow
    bulb from skin-tone bias.
 5. Otherwise: weighted average in linear space with weight = chroma² ·
@@ -94,8 +123,8 @@ Same algorithm in Python (`wiz_ambient/video.py`) and TypeScript
    1.0, send to the bulb.
 
 Brightness is mapped from perceptual luminance with a mild gamma curve
-and a 10% floor. Below the floor → bulb off (the WiZ firmware can't go
-dimmer than 10% anyway).
+and a 10% floor — below the floor, the bulb turns off entirely (the
+WiZ firmware can't dim past 10% anyway).
 
 ## Bulb animator
 
@@ -104,21 +133,22 @@ The bulb's WiZ firmware accepts updates at most every 100 ms
 toward the target at 65% per tick, eases brightness slightly faster
 (80%) so luminance changes feel snappier than hue changes (the eye
 notices brightness first), and snaps instantly on scene cuts. Total
-perceptual latency: ~140 ms — the hardware floor.
+perceptual latency is around 140 ms — the hardware floor.
 
 ## Privacy
 
 - Tab capture and color extraction happen 100% in your browser
 - The bridge only listens on `127.0.0.1` and only forwards to your bulb
 - No telemetry, no accounts, no cloud
-- The Vercel deployment is a static page — no backend, no database
+- The Vercel deployment is a static page — no backend, no database, no
+  user tracking
 
 ## Legacy desktop app
 
 The original native Mac app lives in `wiz_ambient/app.py`. It still
 works (`python run.py`) and supports both audio and video modes, but
-the web frontend is the recommended path going forward. The desktop app
-will be removed once the web flow has feature parity.
+the web frontend is the recommended path going forward and the desktop
+app will be removed once the web flow has feature parity.
 
 ## Contributing
 
