@@ -7,7 +7,7 @@
 #    - ~/Library/LaunchAgents/app.aura.bridge.plist (launchd agent)
 #    - any running bridge process
 #
-#  Usage:  curl -fsSL https://aura.vercel.app/uninstall.sh | bash
+#  Hosted by your Aura web deployment alongside install.sh.
 # ─────────────────────────────────────────────────────────────────────
 
 set -e
@@ -54,9 +54,8 @@ echo "  ╭───────────────────────
 echo "  │                                               │"
 echo "  │     ✓  Aura bridge fully removed.             │"
 echo "  │                                               │"
-echo "  │     To reinstall, run:                        │"
-echo "  │     curl -fsSL aura.vercel.app/install.sh \\   │"
-echo "  │       | bash                                  │"
+echo "  │     To reinstall, open the Aura web app and   │"
+echo "  │     copy the one-liner shown there.           │"
 echo "  │                                               │"
 echo "  ╰───────────────────────────────────────────────╯"
 echo

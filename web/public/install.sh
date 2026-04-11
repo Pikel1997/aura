@@ -9,7 +9,8 @@
 #
 #  Re-running this script updates the bridge to the latest version.
 #
-#  Usage:  curl -fsSL https://aura.vercel.app/install.sh | bash
+#  This script is hosted by your Aura web deployment — visit the page
+#  in your browser and copy the one-liner shown there to run it.
 # ─────────────────────────────────────────────────────────────────────
 
 set -e

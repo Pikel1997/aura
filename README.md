@@ -52,8 +52,8 @@ default.
 
 ### 2. Open the web app
 
-Visit [the deployed Aura page](https://aura.vercel.app) (or run it
-locally — see [`web/README.md`](web/README.md)).
+Visit your deployed Aura page (or run it locally — see
+[`web/README.md`](web/README.md)).
 
 Click **Start Aura**, pick a Chrome tab, done.
 

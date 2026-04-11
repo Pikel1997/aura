@@ -1,8 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTheme } from "./ThemeContext";
 import { ping } from "../../lib/bridge";
-
-const INSTALL_CMD = "curl -fsSL https://aura.vercel.app/install.sh | bash";
 
 interface Props {
   /**
@@ -17,6 +15,14 @@ export function InstallBridge({ onBridgeOnline }: Props) {
   const [copied, setCopied] = useState(false);
   const [waiting, setWaiting] = useState(false);
   const pollRef = useRef<number | null>(null);
+
+  // The install command points at *this* deployment — whatever URL the
+  // user is currently on. That way the curl URL and the install.sh path
+  // always match, regardless of which Vercel domain you're using.
+  const installCmd = useMemo(() => {
+    const origin = typeof window !== "undefined" ? window.location.origin : "";
+    return `curl -fsSL ${origin}/install.sh | bash`;
+  }, []);
 
   // Once the user clicks Copy, start polling /health every 2s.
   // The moment the bridge responds, advance the parent state.
@@ -44,7 +50,7 @@ export function InstallBridge({ onBridgeOnline }: Props) {
 
   const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(INSTALL_CMD);
+      await navigator.clipboard.writeText(installCmd);
       setCopied(true);
       setTimeout(() => setCopied(false), 2400);
       startPolling();
@@ -169,7 +175,7 @@ export function InstallBridge({ onBridgeOnline }: Props) {
           lineHeight: 1.6,
         }}>
           <span style={{ color: t.textSubtle, marginRight: 8 }}>$</span>
-          {INSTALL_CMD}
+          {installCmd}
         </div>
       </div>
 

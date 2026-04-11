@@ -11,7 +11,7 @@ HTTP requests from the Aura web app, and forwards them to your bulb.
 Usage:
     python bridge.py
 
-Then open https://aura.vercel.app in your browser. The web app talks to
+Then open the Aura web app in your browser. The web app talks to
 http://127.0.0.1:8787 — make sure that port is free.
 """
 
