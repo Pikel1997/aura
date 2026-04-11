@@ -32,32 +32,11 @@ export function RequirementsModal({
   const handleDemo = () => onContinueWithoutBulb();
   const handleClose = () => onClose();
 
-  // Lightweight stack-style requirements list
   const requirements = [
-    {
-      id: "browser",
-      title: "Modern Chrome / Edge / Brave / Arc",
-      body: "You're already here, so this is good.",
-      auto: true,
-    },
-    {
-      id: "bulb",
-      title: "A Philips WiZ smart bulb",
-      body: "Any Wi-Fi WiZ bulb works (E27, A19, GU10, BR30, light strips).",
-      auto: false,
-    },
-    {
-      id: "wifi",
-      title: "Bulb on the same Wi-Fi as this Mac",
-      body: "Aura discovers the bulb on your local network — make sure they're on the same SSID.",
-      auto: false,
-    },
-    {
-      id: "wizapp",
-      title: "Bulb already set up in the Philips WiZ app",
-      body: "Pair the bulb in WiZ first, then come back here. Aura doesn't do initial pairing.",
-      auto: false,
-    },
+    { id: "browser", title: "Chromium browser",       body: "Ready.",                          auto: true  },
+    { id: "bulb",    title: "Philips WiZ bulb",       body: "Any Wi-Fi model.",                auto: false },
+    { id: "wifi",    title: "Same Wi-Fi as this Mac", body: "Bulb and Mac on the same SSID.",  auto: false },
+    { id: "wizapp",  title: "Paired in the WiZ app",  body: "Pair there first, then come back.", auto: false },
   ];
 
   return (
@@ -219,7 +198,7 @@ export function RequirementsModal({
             onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.filter = "brightness(1.1)"; }}
             onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.filter = "none"; }}
           >
-            I have a bulb — let's set up →
+            I have a bulb →
           </button>
           <button
             onClick={handleDemo}
@@ -247,20 +226,8 @@ export function RequirementsModal({
               el.style.borderColor = t.borderStrong;
             }}
           >
-            No bulb — just show me the orb
+            No bulb — show me the orb
           </button>
-          <p style={{
-            marginTop: 6,
-            fontSize: 11,
-            color: t.textGhost,
-            letterSpacing: "0.06em",
-            textAlign: "center",
-            lineHeight: 1.7,
-          }}>
-            Demo mode runs the same color extraction and animation
-            without controlling a physical bulb. Switch to bulb mode
-            anytime from the page.
-          </p>
         </div>
       </div>
 

@@ -71,7 +71,7 @@ export function InstallBridge({ appState, onBridgeOnline }: Props) {
           color: t.textSubtle,
           whiteSpace: "nowrap",
         }}>
-          One-time install
+          Install · once
         </p>
         <div style={{ flex: 1, height: 1, background: t.borderMid }} />
       </div>
@@ -84,9 +84,9 @@ export function InstallBridge({ appState, onBridgeOnline }: Props) {
         color: t.text,
         textAlign: "center",
         lineHeight: 1.15,
-        marginBottom: 16,
+        marginBottom: 12,
       }}>
-        Install the bridge in 30 seconds.
+        Install the bridge.
       </p>
 
       <p style={{
@@ -94,14 +94,11 @@ export function InstallBridge({ appState, onBridgeOnline }: Props) {
         color: t.textSubtle,
         letterSpacing: "0.02em",
         textAlign: "center",
-        lineHeight: 1.7,
-        maxWidth: 600,
-        margin: "0 auto 36px",
+        lineHeight: 1.6,
+        maxWidth: 520,
+        margin: "0 auto 32px",
       }}>
-        Aura needs a tiny background process running on your Mac to
-        talk to your bulb. Open Terminal once, paste the line below,
-        hit return — that&apos;s it. From then on the bridge auto-starts
-        every time you log in. You&apos;ll never see this screen again.
+        One paste in Terminal. Auto-runs on every login after that.
       </p>
 
       {/* Command card */}
@@ -215,21 +212,9 @@ export function InstallBridge({ appState, onBridgeOnline }: Props) {
         margin: "0 auto",
       }}>
         {[
-          {
-            n: "01",
-            title: "Open Terminal",
-            body: "Hit ⌘+Space, type \"Terminal\", press return.",
-          },
-          {
-            n: "02",
-            title: "Paste & run",
-            body: "Click Copy above, paste, hit return. Takes ~30 seconds.",
-          },
-          {
-            n: "03",
-            title: "Come back here",
-            body: "Terminal closes itself and brings you back. This page advances automatically.",
-          },
+          { n: "01", title: "Open Terminal", body: "⌘+Space, type Terminal, return." },
+          { n: "02", title: "Paste, run",    body: "Copy above, paste, return." },
+          { n: "03", title: "Come back",     body: "Terminal closes. Page advances." },
         ].map((step) => (
           <div key={step.n} style={{ background: t.bg, padding: "22px 20px" }}>
             <p style={{
@@ -262,19 +247,16 @@ export function InstallBridge({ appState, onBridgeOnline }: Props) {
         ))}
       </div>
 
-      {/* Reassurance footer */}
+      {/* Reassurance footer — minimal */}
       <p style={{
-        marginTop: 32,
-        fontSize: 12,
+        marginTop: 28,
+        fontSize: 11,
         color: t.textGhost,
         letterSpacing: "0.06em",
         textAlign: "center",
         lineHeight: 1.7,
-        maxWidth: 600,
-        marginLeft: "auto",
-        marginRight: "auto",
       }}>
-        The script downloads from{" "}
+        Open source ·{" "}
         <a
           href="https://github.com/Pikel1997/aura"
           target="_blank"
@@ -283,10 +265,7 @@ export function InstallBridge({ appState, onBridgeOnline }: Props) {
         >
           github.com/Pikel1997/aura
         </a>
-        {" "}— open source under MIT. It installs into{" "}
-        <span style={{ color: t.textMuted }}>~/.aura</span>{" "}
-        and registers a launchd agent so the bridge starts on every login.
-        Nothing leaves your machine.
+        {" "}· installs to ~/.aura · nothing leaves your machine
       </p>
     </section>
   );
