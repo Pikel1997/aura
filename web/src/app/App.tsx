@@ -3,6 +3,7 @@ import { ThemeProvider, useTheme } from "./components/ThemeContext";
 import { Orb } from "./components/Orb";
 import { StatusPill } from "./components/StatusPill";
 import { SetupSection } from "./components/SetupSection";
+import { InstallBridge } from "./components/InstallBridge";
 import { GrainOverlay } from "./components/GrainOverlay";
 import { CropMarks } from "./components/CropMarks";
 import {
@@ -431,11 +432,6 @@ function AuraApp() {
     }
   })();
 
-  const showSetup = appState === "idle"
-    || appState === "no-bridge"
-    || appState === "no-bulb"
-    || appState === "checking";
-
   // Real-value technical annotations (no fake X·720 Y·450)
   const annotationLeft = isRunning ? [
     `R · ${metrics.r}`,
@@ -764,7 +760,19 @@ function AuraApp() {
           </>
         )}
 
-        {showSetup && (
+        {/* When the bridge isn't running, show the polished one-line
+            installer instead of the manual setup steps. The installer
+            polls /health and auto-advances the parent state once the
+            bridge comes online. */}
+        {appState === "no-bridge" && (
+          <div style={{ width: "100%", maxWidth: 860, marginTop: 80 }}>
+            <InstallBridge onBridgeOnline={checkBridge} />
+          </div>
+        )}
+
+        {/* For other "in progress" states, keep the brief manual setup
+            (just informational — the bridge is already there). */}
+        {(appState === "idle" || appState === "checking" || appState === "no-bulb") && (
           <div style={{ width: "100%", maxWidth: 860, marginTop: 100 }}>
             <SetupSection />
           </div>
