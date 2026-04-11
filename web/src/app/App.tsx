@@ -173,6 +173,10 @@ function AuraApp() {
   // Live BPM detected from the captured tab's audio (if shared). Drives
   // the orb's breathe animation only — the physical bulb is unaffected.
   const [liveBpm, setLiveBpm] = useState<number | null>(null);
+  // Whether the captured stream actually has an audio track. We surface
+  // this in the BPM badge so users know whether they need to redo the
+  // capture with "Share tab audio" ticked.
+  const [audioShared, setAudioShared] = useState(false);
 
   // Demo mode: skip the bridge entirely and run the orb visualization
   // for users who don't have a Philips WiZ bulb yet (or just want to
@@ -274,15 +278,26 @@ function AuraApp() {
     beatTimesRef.current = [];
     lastBeatTimeRef.current = 0;
     setLiveBpm(null);
+    setAudioShared(false);
   }, []);
 
   const setUpAudio = useCallback((stream: MediaStream) => {
     const tracks = stream.getAudioTracks();
-    if (tracks.length === 0) return; // user didn't tick "Share tab audio"
+    // eslint-disable-next-line no-console
+    console.log("[Aura] audio tracks in stream:", tracks.length, tracks.map((t) => t.label));
+    if (tracks.length === 0) {
+      setAudioShared(false);
+      return; // user didn't tick "Share tab audio"
+    }
+    setAudioShared(true);
     try {
       const Ctx = (window.AudioContext
         || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext);
       const ctx = new Ctx();
+      // Chrome creates AudioContexts in 'suspended' state until a user
+      // gesture; resume() asynchronously kicks it. Safe to call regardless
+      // of state — it's a no-op when already running.
+      ctx.resume().catch(() => { /* ignore */ });
       const source = ctx.createMediaStreamSource(new MediaStream(tracks));
       const analyser = ctx.createAnalyser();
       analyser.fftSize = 1024;
@@ -293,10 +308,13 @@ function AuraApp() {
       audioCtxRef.current = ctx;
       analyserRef.current = analyser;
       audioFftRef.current = new Uint8Array(analyser.frequencyBinCount);
+      // eslint-disable-next-line no-console
+      console.log("[Aura] audio analyzer ready, ctx state:", ctx.state);
     } catch (e) {
       // Audio analyzer setup failed — fall back silently to default pulse
       // eslint-disable-next-line no-console
       console.warn("[Aura] audio analyzer unavailable:", e);
+      setAudioShared(false);
     }
   }, []);
 
@@ -1037,39 +1055,59 @@ function AuraApp() {
               transition: "background 0.45s ease",
             }} />
 
-            {/* BPM badge — only when audio is shared and a beat lock-on
-                has happened. The orb's pulse is also locked to this. */}
-            {liveBpm && liveBpm > 60 && (
-              <div
-                aria-live="polite"
-                style={{
-                  display: "inline-flex",
-                  alignItems: "baseline",
-                  gap: 8,
-                  marginBottom: 18,
-                  padding: "8px 16px 6px",
-                  border: `1px solid ${t.borderStrong}`,
-                  background: t.surface,
-                }}
-              >
-                <span style={{
-                  fontFamily: "'Bebas Neue', sans-serif",
-                  fontSize: 22,
-                  letterSpacing: "0.06em",
-                  color: t.text,
-                }}>
-                  {Math.round(liveBpm)}
-                </span>
-                <span style={{
-                  fontSize: 12,
-                  letterSpacing: "0.22em",
-                  textTransform: "uppercase",
-                  color: t.textSubtle,
-                }}>
-                  BPM
-                </span>
-              </div>
-            )}
+            {/* BPM badge — always visible while running, content
+                adapts to whether audio was shared and whether a beat
+                has been locked yet. */}
+            {(() => {
+              const bpmValue = liveBpm ? Math.round(liveBpm) : null;
+              let primary: string;
+              let helper: string;
+              if (!audioShared) {
+                primary = "—";
+                helper = "BPM · share tab audio";
+              } else if (bpmValue == null) {
+                primary = "—";
+                helper = "BPM · listening for a beat…";
+              } else {
+                primary = String(bpmValue);
+                helper = "BPM";
+              }
+              return (
+                <div
+                  aria-live="polite"
+                  aria-label={`Beats per minute: ${bpmValue ?? "not detected"}`}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "baseline",
+                    gap: 10,
+                    marginBottom: 18,
+                    padding: "10px 18px 8px",
+                    border: `1px solid ${t.borderStrong}`,
+                    background: t.surface,
+                  }}
+                >
+                  <span style={{
+                    fontFamily: "'Bebas Neue', sans-serif",
+                    fontSize: 28,
+                    letterSpacing: "0.06em",
+                    color: bpmValue ? t.text : t.textMuted,
+                    minWidth: 36,
+                    textAlign: "center",
+                  }}>
+                    {primary}
+                  </span>
+                  <span style={{
+                    fontSize: 11,
+                    letterSpacing: "0.22em",
+                    textTransform: "uppercase",
+                    color: t.textSubtle,
+                    fontWeight: 700,
+                  }}>
+                    {helper}
+                  </span>
+                </div>
+              );
+            })()}
 
             <div style={{
               display: "grid",
