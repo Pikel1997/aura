@@ -96,15 +96,12 @@ interface OrbProps {
   liveColor?: { r: number; g: number; b: number };
 }
 
-// Build a radial-gradient string for the orb core from a live RGB triple.
-// Highlight → main color → progressively darker shades.
-function buildLiveCore(r: number, g: number, b: number): string {
-  const lighter = (amt: number) =>
-    `rgb(${Math.min(255, r + amt)}, ${Math.min(255, g + amt)}, ${Math.min(255, b + amt)})`;
-  const darker = (factor: number) =>
-    `rgb(${Math.round(r * factor)}, ${Math.round(g * factor)}, ${Math.round(b * factor)})`;
-  return `radial-gradient(circle at 38% 32%, rgba(255,255,255,0.40) 0%, ${lighter(60)} 12%, rgb(${r},${g},${b}) 36%, ${darker(0.55)} 60%, ${darker(0.25)} 82%, ${darker(0.10)} 100%)`;
-}
+// In running mode the orb is rendered as layered divs instead of a
+// dynamic radial-gradient string, because browsers cannot smoothly
+// interpolate between two different gradient strings — they snap. With
+// layered divs the only thing that mutates per tick is the solid
+// background-color and the box-shadow, both of which CSS *can*
+// interpolate smoothly.
 
 function buildLiveShadow(r: number, g: number, b: number, isDark: boolean): string {
   const a = (n: number) => `rgba(${r},${g},${b},${n})`;
@@ -116,7 +113,7 @@ function buildLiveShadow(r: number, g: number, b: number, isDark: boolean): stri
 
 function buildLiveRing(r: number, g: number, b: number): { ring1: string; ring2: string } {
   return {
-    ring1: `rgba(${r},${g},${b},0.12)`,
+    ring1: `rgba(${r},${g},${b},0.14)`,
     ring2: `rgba(${r},${g},${b},0.05)`,
   };
 }
@@ -128,7 +125,9 @@ export function Orb({ state, liveColor }: OrbProps) {
 
   // Override the running config with the live color when present
   const useLive = isRunning && liveColor && (liveColor.r + liveColor.g + liveColor.b) > 8;
-  const core = useLive ? buildLiveCore(liveColor!.r, liveColor!.g, liveColor!.b) : cfg.core;
+  const liveHex = useLive
+    ? `rgb(${liveColor!.r}, ${liveColor!.g}, ${liveColor!.b})`
+    : null;
   const shadow = useLive
     ? buildLiveShadow(liveColor!.r, liveColor!.g, liveColor!.b, t.isDark)
     : (t.isDark ? cfg.shadow : cfg.lightShadow);
@@ -164,7 +163,7 @@ export function Orb({ state, liveColor }: OrbProps) {
         inset: "-40%",
         borderRadius: "50%",
         background: `radial-gradient(circle, ${rings.ring1} 0%, ${rings.ring2} 50%, transparent 70%)`,
-        transition: "background 0.4s ease",
+        transition: "background 0.6s cubic-bezier(0.22, 1, 0.36, 1)",
         pointerEvents: "none",
       }} />
 
@@ -175,7 +174,9 @@ export function Orb({ state, liveColor }: OrbProps) {
           width: "100%",
           height: "100%",
           borderRadius: "50%",
-          background: core,
+          // In live mode the base is a solid color (smoothly interpolated
+          // by the browser). In other states we keep the static gradient.
+          background: liveHex ?? cfg.core,
           boxShadow: shadow,
           animation: cfg.glitch
             ? "orb-glitch 0.4s steps(1) infinite"
@@ -184,32 +185,99 @@ export function Orb({ state, liveColor }: OrbProps) {
             : cfg.pulse
             ? "orb-breathe 3.4s ease-in-out infinite"
             : "none",
-          transition: "background 0.4s ease, box-shadow 0.4s ease",
+          // 600ms for color → matches 6 animator ticks → silky on cuts
+          transition:
+            "background-color 0.6s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.6s cubic-bezier(0.22, 1, 0.36, 1)",
           overflow: "hidden",
         }}
       >
-        {/* Specular highlight */}
-        <div style={{
-          position: "absolute",
-          top: "14%",
-          left: "20%",
-          width: "35%",
-          height: "28%",
-          borderRadius: "50%",
-          background: "radial-gradient(ellipse, rgba(255,255,255,0.28) 0%, transparent 100%)",
-          filter: "blur(4px)",
-        }} />
-        {/* Bottom rim light */}
-        <div style={{
-          position: "absolute",
-          bottom: "12%",
-          left: "20%",
-          right: "20%",
-          height: "10%",
-          borderRadius: "50%",
-          background: "rgba(255,255,255,0.05)",
-          filter: "blur(6px)",
-        }} />
+        {/* ── Live-mode layered overlays ── */}
+        {liveHex && (
+          <>
+            {/* Edge vignette: dark falloff toward the rim. Static, never
+                re-renders, gives the orb its rounded depth regardless of
+                what color the base is. */}
+            <div style={{
+              position: "absolute",
+              inset: 0,
+              borderRadius: "50%",
+              background:
+                "radial-gradient(circle at 50% 50%, transparent 0%, transparent 38%, rgba(0,0,0,0.45) 88%, rgba(0,0,0,0.85) 100%)",
+              pointerEvents: "none",
+            }} />
+
+            {/* Soft top highlight: warms the upper-left into the lit
+                surface. Pure white-to-transparent so it tints whatever
+                color is underneath. Static. */}
+            <div style={{
+              position: "absolute",
+              inset: 0,
+              borderRadius: "50%",
+              background:
+                "radial-gradient(circle at 36% 30%, rgba(255,255,255,0.55) 0%, rgba(255,255,255,0.18) 22%, transparent 52%)",
+              pointerEvents: "none",
+              mixBlendMode: "screen",
+            }} />
+
+            {/* Specular hot spot — small bright dot up top */}
+            <div style={{
+              position: "absolute",
+              top: "14%",
+              left: "26%",
+              width: "26%",
+              height: "20%",
+              borderRadius: "50%",
+              background:
+                "radial-gradient(ellipse, rgba(255,255,255,0.65) 0%, transparent 70%)",
+              filter: "blur(6px)",
+              pointerEvents: "none",
+              mixBlendMode: "screen",
+            }} />
+
+            {/* Bottom rim light — subtle glow on the lower curve so the
+                orb doesn't go pitch-black at the edge */}
+            <div style={{
+              position: "absolute",
+              bottom: "8%",
+              left: "18%",
+              right: "18%",
+              height: "12%",
+              borderRadius: "50%",
+              background: "rgba(255,255,255,0.10)",
+              filter: "blur(10px)",
+              pointerEvents: "none",
+              mixBlendMode: "screen",
+            }} />
+          </>
+        )}
+
+        {/* ── Static-mode overlays (idle, error, etc.) ── */}
+        {!liveHex && (
+          <>
+            {/* Specular highlight */}
+            <div style={{
+              position: "absolute",
+              top: "14%",
+              left: "20%",
+              width: "35%",
+              height: "28%",
+              borderRadius: "50%",
+              background: "radial-gradient(ellipse, rgba(255,255,255,0.28) 0%, transparent 100%)",
+              filter: "blur(4px)",
+            }} />
+            {/* Bottom rim light */}
+            <div style={{
+              position: "absolute",
+              bottom: "12%",
+              left: "20%",
+              right: "20%",
+              height: "10%",
+              borderRadius: "50%",
+              background: "rgba(255,255,255,0.05)",
+              filter: "blur(6px)",
+            }} />
+          </>
+        )}
       </div>
 
       <style>{`
