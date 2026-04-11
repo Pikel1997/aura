@@ -1,16 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0c0c0a" />
+    <meta name="color-scheme" content="dark light" />
 
-  <!DOCTYPE html>
-  <html lang="en">
-    <head>
-      <meta charset="UTF-8" />
-      <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-      <title>Untitled</title>
-      <style>html, body { height: 100%; margin: 0; } #root { height: 100%; }</style>
-    </head>
+    <!-- ───── Primary identity ───── -->
+    <title>Aura — reactive lighting for your screen</title>
+    <meta
+      name="description"
+      content="Aura turns your Philips WiZ smart bulb into ambient lighting that follows whatever's playing in any Chrome tab. Pick a tab, watch your room glow with the colors on screen — in real time, frame by frame."
+    />
+    <meta
+      name="keywords"
+      content="aura, ambient lighting, philips wiz, smart bulb, screen sync, ambilight, hue sync, chrome tab capture, wiz smart light, bias lighting, room lighting, smart home, reactive lighting, screen capture rgb"
+    />
+    <meta name="author" content="Pikel1997" />
+    <link rel="canonical" href="https://aura-pikel1997.vercel.app/" />
 
-    <body>
-      <div id="root"></div>
-      <script type="module" src="/src/main.tsx"></script>
-    </body>
-  </html>
-  
+    <!-- ───── Favicon ───── -->
+    <link rel="icon" type="image/png" href="/aura-fav-icon.png" />
+    <link rel="shortcut icon" type="image/png" href="/aura-fav-icon.png" />
+    <link rel="apple-touch-icon" href="/aura-fav-icon.png" />
+    <link rel="mask-icon" href="/aura-fav-icon.png" color="#8060ff" />
+
+    <!-- ───── Open Graph (Facebook, LinkedIn, iMessage, Slack, Discord) ───── -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Aura" />
+    <meta property="og:title" content="Aura — reactive lighting for your screen" />
+    <meta
+      property="og:description"
+      content="Pick a Chrome tab. Watch your room glow with whatever's playing. Aura turns any Philips WiZ smart bulb into ambient lighting that follows your screen in real time."
+    />
+    <meta property="og:url" content="https://aura-pikel1997.vercel.app/" />
+    <meta property="og:image" content="https://aura-pikel1997.vercel.app/aura-fav-icon.png" />
+    <meta property="og:image:width" content="1730" />
+    <meta property="og:image:height" content="1730" />
+    <meta property="og:image:alt" content="Aura — a glowing orb representing reactive lighting" />
+    <meta property="og:locale" content="en_US" />
+
+    <!-- ───── Twitter / X Card ───── -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Aura — reactive lighting for your screen" />
+    <meta
+      name="twitter:description"
+      content="Pick a Chrome tab. Watch your room glow with whatever's playing. Open source, runs locally, controls any Philips WiZ smart bulb."
+    />
+    <meta name="twitter:image" content="https://aura-pikel1997.vercel.app/aura-fav-icon.png" />
+    <meta name="twitter:image:alt" content="Aura — a glowing orb representing reactive lighting" />
+
+    <!-- ───── Search engine hints ───── -->
+    <meta name="robots" content="index, follow, max-image-preview:large" />
+    <meta name="googlebot" content="index, follow" />
+    <meta name="format-detection" content="telephone=no" />
+
+    <!-- ───── Structured data (JSON-LD) ───── -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "Aura",
+        "description": "Reactive lighting for Philips WiZ smart bulbs. Turns any Chrome tab into real-time ambient lighting via a tiny local Python bridge.",
+        "applicationCategory": "LifestyleApplication",
+        "operatingSystem": "macOS, Windows, Linux",
+        "url": "https://aura-pikel1997.vercel.app/",
+        "image": "https://aura-pikel1997.vercel.app/aura-fav-icon.png",
+        "license": "https://opensource.org/licenses/MIT",
+        "softwareVersion": "0.1.0",
+        "offers": {
+          "@type": "Offer",
+          "price": "0",
+          "priceCurrency": "USD"
+        },
+        "author": {
+          "@type": "Person",
+          "name": "Pikel1997",
+          "url": "https://github.com/Pikel1997"
+        },
+        "codeRepository": "https://github.com/Pikel1997/aura"
+      }
+    </script>
+
+    <style>
+      html, body { height: 100%; margin: 0; background: #0c0c0a; }
+      #root { height: 100%; }
+    </style>
+  </head>
+
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
