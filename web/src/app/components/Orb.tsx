@@ -86,11 +86,55 @@ const configs: Record<OrbState, OrbConfig> = {
   },
 };
 
-export function Orb({ state }: { state: OrbState }) {
+interface OrbProps {
+  state: OrbState;
+  /**
+   * When provided in the "running" state, the orb's core gradient and
+   * outer glow are built from this color so the visualization actually
+   * matches what the bulb is showing right now.
+   */
+  liveColor?: { r: number; g: number; b: number };
+}
+
+// Build a radial-gradient string for the orb core from a live RGB triple.
+// Highlight → main color → progressively darker shades.
+function buildLiveCore(r: number, g: number, b: number): string {
+  const lighter = (amt: number) =>
+    `rgb(${Math.min(255, r + amt)}, ${Math.min(255, g + amt)}, ${Math.min(255, b + amt)})`;
+  const darker = (factor: number) =>
+    `rgb(${Math.round(r * factor)}, ${Math.round(g * factor)}, ${Math.round(b * factor)})`;
+  return `radial-gradient(circle at 38% 32%, rgba(255,255,255,0.40) 0%, ${lighter(60)} 12%, rgb(${r},${g},${b}) 36%, ${darker(0.55)} 60%, ${darker(0.25)} 82%, ${darker(0.10)} 100%)`;
+}
+
+function buildLiveShadow(r: number, g: number, b: number, isDark: boolean): string {
+  const a = (n: number) => `rgba(${r},${g},${b},${n})`;
+  if (isDark) {
+    return `0 0 60px 16px ${a(0.62)}, 0 0 140px 50px ${a(0.32)}, 0 0 280px 90px ${a(0.14)}`;
+  }
+  return `0 0 60px 20px ${a(0.65)}, 0 0 140px 56px ${a(0.36)}, 0 24px 80px 14px rgba(0,0,0,0.20)`;
+}
+
+function buildLiveRing(r: number, g: number, b: number): { ring1: string; ring2: string } {
+  return {
+    ring1: `rgba(${r},${g},${b},0.12)`,
+    ring2: `rgba(${r},${g},${b},0.05)`,
+  };
+}
+
+export function Orb({ state, liveColor }: OrbProps) {
   const { t } = useTheme();
   const cfg = configs[state];
   const isRunning = state === "running";
-  const shadow = t.isDark ? cfg.shadow : cfg.lightShadow;
+
+  // Override the running config with the live color when present
+  const useLive = isRunning && liveColor && (liveColor.r + liveColor.g + liveColor.b) > 8;
+  const core = useLive ? buildLiveCore(liveColor!.r, liveColor!.g, liveColor!.b) : cfg.core;
+  const shadow = useLive
+    ? buildLiveShadow(liveColor!.r, liveColor!.g, liveColor!.b, t.isDark)
+    : (t.isDark ? cfg.shadow : cfg.lightShadow);
+  const rings = useLive
+    ? buildLiveRing(liveColor!.r, liveColor!.g, liveColor!.b)
+    : { ring1: cfg.ring1, ring2: cfg.ring2 };
 
   return (
     <div
@@ -119,8 +163,8 @@ export function Orb({ state }: { state: OrbState }) {
         position: "absolute",
         inset: "-40%",
         borderRadius: "50%",
-        background: `radial-gradient(circle, ${cfg.ring1} 0%, ${cfg.ring2} 50%, transparent 70%)`,
-        transition: "background 1.4s ease",
+        background: `radial-gradient(circle, ${rings.ring1} 0%, ${rings.ring2} 50%, transparent 70%)`,
+        transition: "background 0.4s ease",
         pointerEvents: "none",
       }} />
 
@@ -131,16 +175,16 @@ export function Orb({ state }: { state: OrbState }) {
           width: "100%",
           height: "100%",
           borderRadius: "50%",
-          background: cfg.core,
+          background: core,
           boxShadow: shadow,
           animation: cfg.glitch
             ? "orb-glitch 0.4s steps(1) infinite"
             : cfg.pulse && isRunning
-            ? "orb-breathe-hot 2.8s ease-in-out infinite"
+            ? "orb-breathe-hot 2.2s ease-in-out infinite"
             : cfg.pulse
-            ? "orb-breathe 4.5s ease-in-out infinite"
+            ? "orb-breathe 3.4s ease-in-out infinite"
             : "none",
-          transition: "background 1.4s ease, box-shadow 1.4s ease",
+          transition: "background 0.4s ease, box-shadow 0.4s ease",
           overflow: "hidden",
         }}
       >
@@ -170,12 +214,12 @@ export function Orb({ state }: { state: OrbState }) {
 
       <style>{`
         @keyframes orb-breathe {
-          0%, 100% { transform: scale(1); }
-          50% { transform: scale(1.03); }
+          0%, 100% { transform: scale(1); filter: brightness(0.95); }
+          50%      { transform: scale(1.07); filter: brightness(1.08); }
         }
         @keyframes orb-breathe-hot {
-          0%, 100% { transform: scale(1); filter: brightness(1); }
-          50% { transform: scale(1.05); filter: brightness(1.12); }
+          0%, 100% { transform: scale(1);     filter: brightness(0.92); }
+          50%      { transform: scale(1.11);  filter: brightness(1.24); }
         }
         @keyframes orb-glitch {
           0%   { transform: translate(0,0) skewX(0deg); filter: hue-rotate(0deg); }

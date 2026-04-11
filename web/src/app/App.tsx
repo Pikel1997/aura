@@ -56,6 +56,32 @@ const BRI_EASE = 0.8;
 const DEBUG = typeof window !== "undefined"
   && new URLSearchParams(window.location.search).has("debug");
 
+// Convert MediaStreamTrack.label to a human-friendly tab name. Chrome
+// sometimes returns the technical stream identifier
+// (web-contents-media-stream://N:M) instead of the actual title — fall
+// back to the captured surface type when that happens.
+function friendlyTabName(track: MediaStreamTrack): string {
+  const label = (track.label || "").trim();
+  let surface: string | undefined;
+  try {
+    surface = (track.getSettings() as { displaySurface?: string }).displaySurface;
+  } catch {
+    surface = undefined;
+  }
+  const looksTechnical =
+    !label
+    || /^[a-z][a-z0-9.+-]*:\/\//i.test(label)
+    || label.startsWith("web-contents-")
+    || label.startsWith("stream:");
+  if (looksTechnical) {
+    if (surface === "browser") return "Browser tab";
+    if (surface === "window") return "Application window";
+    if (surface === "monitor") return "Entire screen";
+    return "Captured source";
+  }
+  return label;
+}
+
 // ── Theme toggle ─────────────────────────────────────────────────
 function ThemeToggle() {
   const { t, toggle } = useTheme();
@@ -266,7 +292,7 @@ function AuraApp() {
 
       streamRef.current = stream;
       const track = stream.getVideoTracks()[0];
-      setTabName(track.label || "Unknown source");
+      setTabName(friendlyTabName(track));
 
       track.addEventListener("ended", () => {
         stopCapture();
@@ -617,7 +643,10 @@ function AuraApp() {
         </div>
 
         <div style={{ position: "relative" }}>
-          <Orb state={appState} />
+          <Orb
+            state={appState}
+            liveColor={isRunning ? { r: metrics.r, g: metrics.g, b: metrics.b } : undefined}
+          />
           <div style={{
             position: "absolute",
             top: "50%",
