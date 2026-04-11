@@ -89,11 +89,17 @@ const configs: Record<OrbState, OrbConfig> = {
 interface OrbProps {
   state: OrbState;
   /**
-   * When provided in the "running" state, the orb's core gradient and
-   * outer glow are built from this color so the visualization actually
-   * matches what the bulb is showing right now.
+   * When provided in the "running" state, the orb's solid base color
+   * and outer glow are built from this color so the visualization
+   * actually matches what the bulb is showing right now.
    */
   liveColor?: { r: number; g: number; b: number };
+  /**
+   * When provided (running state, audio shared), the orb's breathe
+   * animation locks its duration to one beat of the captured song.
+   * 60-180 BPM, smoothed. Falls back to the default rhythm when null.
+   */
+  bpm?: number | null;
 }
 
 // In running mode the orb is rendered as layered divs instead of a
@@ -118,10 +124,19 @@ function buildLiveRing(r: number, g: number, b: number): { ring1: string; ring2:
   };
 }
 
-export function Orb({ state, liveColor }: OrbProps) {
+export function Orb({ state, liveColor, bpm }: OrbProps) {
   const { t } = useTheme();
   const cfg = configs[state];
   const isRunning = state === "running";
+
+  // BPM → breathe duration. Each beat is one full pulse cycle.
+  // Doubled (half-time) when faster than 130 BPM so the orb doesn't
+  // strobe on fast songs.
+  let breatheHotDuration = "2.2s";
+  if (isRunning && bpm && bpm > 60 && bpm < 200) {
+    const adjustedBpm = bpm > 130 ? bpm / 2 : bpm;
+    breatheHotDuration = `${(60 / adjustedBpm).toFixed(2)}s`;
+  }
 
   // Override the running config with the live color when present
   const useLive = isRunning && liveColor && (liveColor.r + liveColor.g + liveColor.b) > 8;
@@ -181,7 +196,7 @@ export function Orb({ state, liveColor }: OrbProps) {
           animation: cfg.glitch
             ? "orb-glitch 0.4s steps(1) infinite"
             : cfg.pulse && isRunning
-            ? "orb-breathe-hot 2.2s ease-in-out infinite"
+            ? `orb-breathe-hot ${breatheHotDuration} ease-in-out infinite`
             : cfg.pulse
             ? "orb-breathe 3.4s ease-in-out infinite"
             : "none",
@@ -202,49 +217,34 @@ export function Orb({ state, liveColor }: OrbProps) {
               inset: 0,
               borderRadius: "50%",
               background:
-                "radial-gradient(circle at 50% 50%, transparent 0%, transparent 38%, rgba(0,0,0,0.45) 88%, rgba(0,0,0,0.85) 100%)",
+                "radial-gradient(circle at 50% 50%, transparent 0%, transparent 42%, rgba(0,0,0,0.40) 88%, rgba(0,0,0,0.78) 100%)",
               pointerEvents: "none",
             }} />
 
-            {/* Soft top highlight: warms the upper-left into the lit
-                surface. Pure white-to-transparent so it tints whatever
-                color is underneath. Static. */}
+            {/* Soft top highlight — much subtler now. The colored base
+                should be the dominant visual; this just hints at a lit
+                surface from the upper-left. */}
             <div style={{
               position: "absolute",
               inset: 0,
               borderRadius: "50%",
               background:
-                "radial-gradient(circle at 36% 30%, rgba(255,255,255,0.55) 0%, rgba(255,255,255,0.18) 22%, transparent 52%)",
+                "radial-gradient(circle at 36% 30%, rgba(255,255,255,0.18) 0%, rgba(255,255,255,0.06) 22%, transparent 48%)",
               pointerEvents: "none",
               mixBlendMode: "screen",
             }} />
 
-            {/* Specular hot spot — small bright dot up top */}
+            {/* Specular hot spot — small subtle dot, dialed way back */}
             <div style={{
               position: "absolute",
-              top: "14%",
-              left: "26%",
-              width: "26%",
-              height: "20%",
+              top: "16%",
+              left: "28%",
+              width: "22%",
+              height: "16%",
               borderRadius: "50%",
               background:
-                "radial-gradient(ellipse, rgba(255,255,255,0.65) 0%, transparent 70%)",
-              filter: "blur(6px)",
-              pointerEvents: "none",
-              mixBlendMode: "screen",
-            }} />
-
-            {/* Bottom rim light — subtle glow on the lower curve so the
-                orb doesn't go pitch-black at the edge */}
-            <div style={{
-              position: "absolute",
-              bottom: "8%",
-              left: "18%",
-              right: "18%",
-              height: "12%",
-              borderRadius: "50%",
-              background: "rgba(255,255,255,0.10)",
-              filter: "blur(10px)",
+                "radial-gradient(ellipse, rgba(255,255,255,0.22) 0%, transparent 70%)",
+              filter: "blur(8px)",
               pointerEvents: "none",
               mixBlendMode: "screen",
             }} />
@@ -286,8 +286,8 @@ export function Orb({ state, liveColor }: OrbProps) {
           50%      { transform: scale(1.07); filter: brightness(1.08); }
         }
         @keyframes orb-breathe-hot {
-          0%, 100% { transform: scale(1);     filter: brightness(0.92); }
-          50%      { transform: scale(1.11);  filter: brightness(1.24); }
+          0%, 100% { transform: scale(1);     filter: brightness(0.96); }
+          50%      { transform: scale(1.10);  filter: brightness(1.10); }
         }
         @keyframes orb-glitch {
           0%   { transform: translate(0,0) skewX(0deg); filter: hue-rotate(0deg); }

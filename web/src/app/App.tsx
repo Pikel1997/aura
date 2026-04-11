@@ -169,6 +169,9 @@ function AuraApp() {
   const [metrics, setMetrics] = useState({
     r: 0, g: 0, b: 0, bri: 0, lum: 0, chr: 0,
   });
+  // Live BPM detected from the captured tab's audio (if shared). Drives
+  // the orb's breathe animation only — the physical bulb is unaffected.
+  const [liveBpm, setLiveBpm] = useState<number | null>(null);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -176,6 +179,14 @@ function AuraApp() {
   const tickRef = useRef<number | null>(null);
   const easedRef = useRef({ r: 0, g: 0, b: 0, bri: 0 });
   const lastSentRef = useRef({ r: -1, g: -1, b: -1, bri: -1 });
+
+  // Audio analyzer state — only set up when the user shared tab audio
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const audioFftRef = useRef<Uint8Array | null>(null);
+  const bassHistoryRef = useRef<number[]>([]);
+  const lastBeatTimeRef = useRef(0);
+  const beatTimesRef = useRef<number[]>([]);
 
   // ── Bridge bootstrap ────────────────────────────────────────────
   const checkBridge = useCallback(async () => {
@@ -214,6 +225,47 @@ function AuraApp() {
     checkBridge();
   }, [checkBridge]);
 
+  // ── Audio analyzer (BPM only — bulb path is untouched) ─────────
+  const tearDownAudio = useCallback(() => {
+    try {
+      analyserRef.current?.disconnect();
+    } catch { /* ignore */ }
+    try {
+      audioCtxRef.current?.close();
+    } catch { /* ignore */ }
+    analyserRef.current = null;
+    audioCtxRef.current = null;
+    audioFftRef.current = null;
+    bassHistoryRef.current = [];
+    beatTimesRef.current = [];
+    lastBeatTimeRef.current = 0;
+    setLiveBpm(null);
+  }, []);
+
+  const setUpAudio = useCallback((stream: MediaStream) => {
+    const tracks = stream.getAudioTracks();
+    if (tracks.length === 0) return; // user didn't tick "Share tab audio"
+    try {
+      const Ctx = (window.AudioContext
+        || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext);
+      const ctx = new Ctx();
+      const source = ctx.createMediaStreamSource(new MediaStream(tracks));
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 1024;
+      analyser.smoothingTimeConstant = 0.55;
+      source.connect(analyser);
+      // Note: deliberately NOT connecting analyser to ctx.destination —
+      // we don't want to duplicate the song into the user's speakers.
+      audioCtxRef.current = ctx;
+      analyserRef.current = analyser;
+      audioFftRef.current = new Uint8Array(analyser.frequencyBinCount);
+    } catch (e) {
+      // Audio analyzer setup failed — fall back silently to default pulse
+      // eslint-disable-next-line no-console
+      console.warn("[Aura] audio analyzer unavailable:", e);
+    }
+  }, []);
+
   // ── Capture lifecycle ──────────────────────────────────────────
   const stopCapture = useCallback(async () => {
     if (tickRef.current) {
@@ -225,6 +277,7 @@ function AuraApp() {
       streamRef.current = null;
     }
     if (videoRef.current) videoRef.current.srcObject = null;
+    tearDownAudio();
     setTabName(null);
     setMetrics({ r: 0, g: 0, b: 0, bri: 0, lum: 0, chr: 0 });
     easedRef.current = { r: 0, g: 0, b: 0, bri: 0 };
@@ -235,11 +288,63 @@ function AuraApp() {
       /* ignore */
     }
     setAppState((s) => (s === "running" || s === "picking-tab" ? "idle" : s));
+  }, [tearDownAudio]);
+
+  // Beat onset detection — runs each tick when audio is available.
+  // Reads bass-band FFT, compares to a rolling average, debounces beats,
+  // computes BPM as median interval over the last 8 beats. Drives the
+  // orb's pulse only — does NOT touch the bulb code path.
+  const detectBeat = useCallback(() => {
+    const analyser = analyserRef.current;
+    const fft = audioFftRef.current;
+    if (!analyser || !fft) return;
+
+    analyser.getByteFrequencyData(fft);
+
+    // Bass band: bins 1-10 ≈ 40-450 Hz at fftSize 1024 / sampleRate ~48k
+    let bass = 0;
+    for (let i = 1; i <= 10; i++) bass += fft[i];
+    bass /= 10;
+
+    const history = bassHistoryRef.current;
+    history.push(bass);
+    if (history.length > 43) history.shift(); // ~4.3s at 10 Hz tick
+    if (history.length < 10) return;
+
+    const avg = history.reduce((a, b) => a + b, 0) / history.length;
+    const now = performance.now();
+    const cooldownOk = now - lastBeatTimeRef.current > 220;
+    const isOnset = bass > avg * 1.45 && bass > 30 && cooldownOk;
+    if (!isOnset) return;
+
+    lastBeatTimeRef.current = now;
+    const beats = beatTimesRef.current;
+    beats.push(now);
+    // Keep last ~5s of beats
+    while (beats.length > 0 && now - beats[0] > 5000) beats.shift();
+    if (beats.length < 4) return;
+
+    // Median inter-beat interval, filtered to musical range
+    const intervals: number[] = [];
+    for (let i = 1; i < beats.length; i++) {
+      const dt = beats[i] - beats[i - 1];
+      if (dt > 250 && dt < 1100) intervals.push(dt);
+    }
+    if (intervals.length < 3) return;
+    intervals.sort((a, b) => a - b);
+    const median = intervals[Math.floor(intervals.length / 2)];
+    const rawBpm = 60000 / median;
+    if (rawBpm < 60 || rawBpm > 180) return;
+
+    // Smoothed BPM
+    setLiveBpm((prev) => (prev ? prev * 0.65 + rawBpm * 0.35 : rawBpm));
   }, []);
 
   const startTicking = useCallback(() => {
     if (tickRef.current) window.clearInterval(tickRef.current);
     tickRef.current = window.setInterval(() => {
+      detectBeat();
+
       const v = videoRef.current;
       const c = canvasRef.current;
       if (!v || !c || v.videoWidth === 0) return;
@@ -296,15 +401,19 @@ function AuraApp() {
         });
       }
     }, TICK_MS);
-  }, [stopCapture]);
+  }, [stopCapture, detectBeat]);
 
   const startCapture = useCallback(async () => {
     if (appState !== "idle") return;
     setAppState("picking-tab");
     try {
+      // Request audio too — Chrome will show a "Share tab audio" tickbox
+      // in the picker. If the user shares it we use it for BPM detection
+      // (orb-only). If they don't, the orb falls back to its default
+      // pulse and nothing else changes.
       const stream = await navigator.mediaDevices.getDisplayMedia({
         video: { frameRate: 30 } as MediaTrackConstraints,
-        audio: false,
+        audio: true,
         preferCurrentTab: false,
         selfBrowserSurface: "exclude",
       } as DisplayMediaStreamOptions);
@@ -312,6 +421,10 @@ function AuraApp() {
       streamRef.current = stream;
       const track = stream.getVideoTracks()[0];
       setTabName(friendlyTabName(track));
+
+      // Set up the audio analyzer if the stream has audio. Failures are
+      // silent — bulb code path is unaffected.
+      setUpAudio(stream);
 
       track.addEventListener("ended", () => {
         stopCapture();
@@ -326,7 +439,7 @@ function AuraApp() {
     } catch {
       setAppState("idle");
     }
-  }, [appState, startTicking, stopCapture]);
+  }, [appState, startTicking, stopCapture, setUpAudio]);
 
   useEffect(() => () => { stopCapture(); }, [stopCapture]);
 
@@ -665,6 +778,7 @@ function AuraApp() {
           <Orb
             state={appState}
             liveColor={isRunning ? { r: metrics.r, g: metrics.g, b: metrics.b } : undefined}
+            bpm={isRunning ? liveBpm : null}
           />
           <div style={{
             position: "absolute",
