@@ -1,10 +1,12 @@
-"""WiZ Ambient — minimal native-feeling Mac app.
+"""Aura — reactive lighting for WiZ bulbs.
 
-Clean dark UI, menu bar integration (NSStatusBar), settings persistence,
-window selection, BPM display, hide-on-close background operation.
+Linear setup flow: discover → mode → source → run.
+No manual IP entry, no test panel, no extraneous knobs. The app validates
+each requirement and tells the user exactly what's wrong if a step fails.
 """
 
 import customtkinter as ctk
+import subprocess
 import threading
 import time
 
@@ -15,35 +17,82 @@ from .logger import SessionLogger
 from . import config as cfg_mod
 
 
-# ── Palette (European minimal dark) ──
-BG       = "#0e0e10"
-SURFACE  = "#17171a"
-SURFACE2 = "#1f1f24"
-BORDER   = "#26262d"
-TEXT     = "#e9e9ec"
-MUTED    = "#8a8a93"
-ACCENT   = "#d4d4d9"
-OK       = "#7ecf8a"
-WARN     = "#e5a45a"
-ERR      = "#e57373"
+# ── Apple HIG-inspired dark palette ──
+BG       = "#1c1c1e"
+SURFACE  = "#2c2c2e"
+SURFACE2 = "#3a3a3c"
+BORDER   = "#3a3a3c"
+TEXT     = "#ffffff"
+MUTED    = "#8e8e93"
+SUBTLE   = "#636366"
+ACCENT   = "#0a84ff"
+ACCENT_HOVER = "#409cff"
+OK       = "#30d158"
+WARN     = "#ff9f0a"
+ERR      = "#ff453a"
 
-FONT_H   = ("SF Pro Display", 22, "normal")
-FONT_LBL = ("SF Pro Display", 10)
-FONT_CAP = ("SF Pro Display", 9)
-FONT_MONO = ("SF Mono", 10)
-FONT_BTN = ("SF Pro Display", 12)
+FONT_TITLE  = ("SF Pro Display", 28, "bold")
+FONT_H      = ("SF Pro Display", 16, "bold")
+FONT_BODY   = ("SF Pro Text", 13)
+FONT_LBL    = ("SF Pro Text", 12)
+FONT_CAP    = ("SF Pro Text", 10)
+FONT_MONO   = ("SF Mono", 12)
+FONT_BTN    = ("SF Pro Text", 13, "bold")
 
 
-def _section(parent, title):
-    """Create a bordered section container with a caption."""
-    wrap = ctk.CTkFrame(parent, fg_color="transparent")
-    wrap.pack(fill="x", padx=18, pady=(14, 0))
-    ctk.CTkLabel(wrap, text=title.upper(), font=FONT_CAP,
-                 text_color=MUTED, anchor="w").pack(fill="x", pady=(0, 6))
-    box = ctk.CTkFrame(wrap, fg_color=SURFACE, corner_radius=10,
-                       border_width=1, border_color=BORDER)
-    box.pack(fill="x")
-    return box
+def _has_network() -> tuple[bool, str]:
+    """Check whether the Mac has a usable non-loopback IPv4 interface."""
+    try:
+        out = subprocess.check_output(["ifconfig"], text=True, timeout=2)
+    except Exception:
+        return False, "unknown"
+    iface = None
+    for block in out.split("\n\n"):
+        if "status: active" not in block and "inet " not in block:
+            continue
+        for line in block.splitlines():
+            line = line.strip()
+            if line.startswith("inet ") and not line.startswith("inet 127."):
+                ip = line.split()[1]
+                # Get interface name from first line of block
+                first = block.splitlines()[0]
+                name = first.split(":")[0] if ":" in first else "?"
+                return True, f"{name} ({ip})"
+    return False, "none"
+
+
+def _ssid() -> str | None:
+    """Best-effort current Wi-Fi SSID via networksetup."""
+    try:
+        out = subprocess.check_output(
+            ["networksetup", "-getairportnetwork", "en0"],
+            text=True, timeout=2)
+        if ":" in out:
+            return out.split(":", 1)[1].strip() or None
+    except Exception:
+        pass
+    return None
+
+
+# ────────────────────────────────────────────────────────────────────────
+# Reusable card primitive
+# ────────────────────────────────────────────────────────────────────────
+class Card(ctk.CTkFrame):
+    """A grouped section card with caption + content area."""
+
+    def __init__(self, parent, title: str, **kwargs):
+        super().__init__(parent, fg_color="transparent", **kwargs)
+        ctk.CTkLabel(self, text=title.upper(),
+                     font=FONT_CAP, text_color=MUTED,
+                     anchor="w").pack(fill="x", padx=4, pady=(0, 8))
+        self.body = ctk.CTkFrame(self, fg_color=SURFACE,
+                                 corner_radius=12, border_width=0)
+        self.body.pack(fill="x")
+
+    def set_enabled(self, enabled: bool):
+        """Dim the card when locked behind a previous step."""
+        color = SURFACE if enabled else BG
+        self.body.configure(fg_color=color)
 
 
 class WizAmbientApp(ctk.CTk):
@@ -52,291 +101,385 @@ class WizAmbientApp(ctk.CTk):
 
         self.cfg = cfg_mod.load()
 
-        self.title("WiZ Ambient")
-        self.geometry("440x720")
-        self.minsize(440, 720)
+        self.title("Aura")
+        self.geometry("440x680")
+        self.minsize(440, 680)
         self.configure(fg_color=BG)
-
         ctk.set_appearance_mode("dark")
 
         self.logger = SessionLogger()
         self.bulb = BulbController()
         self.audio = AudioAnalyzer(logger=self.logger)
         self.video = VideoAnalyzer(logger=self.logger)
+        self.bulb.color_correction = True
 
-        self.bulb.color_correction = self.cfg.get("color_correction", True)
-
+        # State
         self._active = False
         self._mode = self.cfg.get("mode", "audio")
-        self._test_running = False
-        self._windows = []  # list of {id,label}
+        self._bulb_ip: str | None = None
+        self._windows: list[dict] = []
 
         self._build_ui()
-        self._apply_cfg()
-        self.protocol("WM_DELETE_WINDOW", self._on_close_hide)
-        self.logger.log("APP", "UI built, ready")
+        self.protocol("WM_DELETE_WINDOW", self._really_quit)
+        self.logger.log("APP", "UI built — running setup wizard")
 
-        self._install_menu_bar()
-
-        if self.cfg.get("start_hidden"):
-            self.withdraw()
-
-        if self.cfg.get("auto_start") and self.cfg.get("bulb_ip"):
-            self.after(500, self._auto_connect_and_start)
+        # Auto-start discovery on launch
+        self.after(300, self._discover)
 
     # ────────────────────────────────────────────────────────────────────
     # UI
     # ────────────────────────────────────────────────────────────────────
     def _build_ui(self):
-        root = ctk.CTkScrollableFrame(self, fg_color=BG,
-                                      scrollbar_button_color=SURFACE2,
-                                      scrollbar_button_hover_color=BORDER)
-        root.pack(fill="both", expand=True)
+        # Two stacked containers — only one visible at a time
+        self.setup_view = ctk.CTkFrame(self, fg_color=BG)
+        self.running_view = ctk.CTkFrame(self, fg_color=BG)
+
+        self._build_setup_view()
+        self._build_running_view()
+
+        self.setup_view.pack(fill="both", expand=True)
+
+    # ── Setup view ──────────────────────────────────────────────────────
+    def _build_setup_view(self):
+        root = ctk.CTkFrame(self.setup_view, fg_color="transparent")
+        root.pack(fill="both", expand=True, padx=24, pady=24)
 
         # Header
-        head = ctk.CTkFrame(root, fg_color="transparent")
-        head.pack(fill="x", padx=18, pady=(18, 0))
-        ctk.CTkLabel(head, text="WiZ Ambient",
-                     font=FONT_H, text_color=TEXT).pack(anchor="w")
-        ctk.CTkLabel(head, text="Reactive lighting",
-                     font=FONT_LBL, text_color=MUTED).pack(anchor="w")
+        ctk.CTkLabel(root, text="Aura",
+                     font=FONT_TITLE, text_color=TEXT).pack(anchor="w")
+        ctk.CTkLabel(root, text="Reactive lighting for your WiZ bulb",
+                     font=FONT_BODY, text_color=MUTED).pack(anchor="w",
+                                                            pady=(0, 24))
 
-        # ── Bulb ──
-        box = _section(root, "Bulb")
-        inner = ctk.CTkFrame(box, fg_color="transparent")
-        inner.pack(fill="x", padx=12, pady=12)
-        self.ip_entry = ctk.CTkEntry(
-            inner, placeholder_text="IP address",
-            fg_color=SURFACE2, border_color=BORDER, text_color=TEXT,
-            height=32)
-        self.ip_entry.pack(fill="x")
-        btn_row = ctk.CTkFrame(inner, fg_color="transparent")
-        btn_row.pack(fill="x", pady=(8, 0))
-        self.connect_btn = ctk.CTkButton(
-            btn_row, text="Connect", command=self._connect, height=30,
-            fg_color=SURFACE2, hover_color=BORDER, text_color=TEXT,
-            border_width=1, border_color=BORDER, font=FONT_BTN)
-        self.connect_btn.pack(side="left", fill="x", expand=True, padx=(0, 4))
-        self.discover_btn = ctk.CTkButton(
-            btn_row, text="Discover", command=self._discover, height=30,
-            fg_color=SURFACE2, hover_color=BORDER, text_color=MUTED,
-            border_width=1, border_color=BORDER, font=FONT_BTN)
-        self.discover_btn.pack(side="left", fill="x", expand=True, padx=(4, 0))
-        self.conn_status = ctk.CTkLabel(
-            inner, text="Not connected", text_color=MUTED, font=FONT_LBL)
-        self.conn_status.pack(anchor="w", pady=(8, 0))
+        # ── Step 1: Bulb ──
+        self.card_bulb = Card(root, "1 — Connect your bulb")
+        self.card_bulb.pack(fill="x", pady=(0, 16))
 
-        # ── Mode ──
-        box = _section(root, "Mode")
-        mrow = ctk.CTkFrame(box, fg_color="transparent")
-        mrow.pack(fill="x", padx=12, pady=12)
+        b = ctk.CTkFrame(self.card_bulb.body, fg_color="transparent")
+        b.pack(fill="x", padx=16, pady=16)
+
+        self.bulb_status = ctk.CTkLabel(
+            b, text="Searching for bulbs on your network…",
+            font=FONT_BODY, text_color=MUTED, anchor="w", justify="left")
+        self.bulb_status.pack(fill="x")
+
+        self.find_btn = ctk.CTkButton(
+            b, text="Search again", command=self._discover,
+            height=32, corner_radius=8, font=FONT_BTN,
+            fg_color=SURFACE2, hover_color=BORDER, text_color=TEXT)
+        self.find_btn.pack(fill="x", pady=(12, 0))
+        self.find_btn.pack_forget()  # hidden until first failure
+
+        # Troubleshoot block (hidden until needed)
+        self.trouble = ctk.CTkFrame(b, fg_color="transparent")
+        # populated dynamically when shown
+
+        # ── Step 2: Mode ──
+        self.card_mode = Card(root, "2 — Pick a mode")
+        self.card_mode.pack(fill="x", pady=(0, 16))
+
+        m = ctk.CTkFrame(self.card_mode.body, fg_color="transparent")
+        m.pack(fill="x", padx=16, pady=16)
         self.mode_var = ctk.StringVar(value=self._mode)
         self.seg_mode = ctk.CTkSegmentedButton(
-            mrow, values=["audio", "video"],
-            variable=self.mode_var, command=lambda _=None: self._mode_changed(),
-            fg_color=SURFACE2, selected_color=BORDER,
-            selected_hover_color=BORDER, unselected_color=SURFACE2,
-            unselected_hover_color=SURFACE2, text_color=TEXT,
-            font=FONT_BTN, height=32)
+            m, values=["audio", "video"], variable=self.mode_var,
+            command=lambda _=None: self._mode_changed(),
+            fg_color=SURFACE2, selected_color=ACCENT,
+            selected_hover_color=ACCENT_HOVER,
+            unselected_color=SURFACE2, unselected_hover_color=BORDER,
+            text_color=TEXT, font=FONT_BTN, height=34, state="disabled")
         self.seg_mode.pack(fill="x")
+        self.mode_caption = ctk.CTkLabel(
+            m, text="", font=FONT_CAP, text_color=MUTED,
+            anchor="w", justify="left")
+        self.mode_caption.pack(fill="x", pady=(8, 0))
 
-        # ── Audio panel ──
-        self.audio_box = _section(root, "Audio")
-        a = ctk.CTkFrame(self.audio_box, fg_color="transparent")
-        a.pack(fill="x", padx=12, pady=12)
+        # ── Step 3: Source (video only) ──
+        self.card_source = Card(root, "3 — Choose source")
+        # packed/unpacked dynamically based on mode
 
-        ctk.CTkLabel(a, text="Style", font=FONT_LBL,
-                     text_color=MUTED).pack(anchor="w")
-        self.audio_style_var = ctk.StringVar(
-            value=self.cfg.get("audio_style", "smooth"))
-        self.seg_style = ctk.CTkSegmentedButton(
-            a, values=["smooth", "snappy"], variable=self.audio_style_var,
-            command=lambda _=None: self._save_cfg(),
-            fg_color=SURFACE2, selected_color=BORDER,
-            selected_hover_color=BORDER, unselected_color=SURFACE2,
-            unselected_hover_color=SURFACE2, text_color=TEXT,
-            font=FONT_BTN, height=30)
-        self.seg_style.pack(fill="x", pady=(4, 10))
-
-        ctk.CTkLabel(a, text="Sensitivity", font=FONT_LBL,
-                     text_color=MUTED).pack(anchor="w")
-        self.sens_slider = ctk.CTkSlider(
-            a, from_=0.1, to=5.0, number_of_steps=49,
-            fg_color=SURFACE2, progress_color=ACCENT, button_color=TEXT,
-            button_hover_color=ACCENT, command=lambda _=None: self._save_cfg())
-        self.sens_slider.set(self.cfg.get("audio_sensitivity", 1.5))
-        self.sens_slider.pack(fill="x", pady=(4, 8))
-
-        # BPM display
-        bpm_row = ctk.CTkFrame(a, fg_color="transparent")
-        bpm_row.pack(fill="x")
-        ctk.CTkLabel(bpm_row, text="BPM", font=FONT_LBL,
-                     text_color=MUTED).pack(side="left")
-        self.bpm_value = ctk.CTkLabel(
-            bpm_row, text="—", font=("SF Mono", 12), text_color=TEXT)
-        self.bpm_value.pack(side="right")
-
-        mood_row = ctk.CTkFrame(a, fg_color="transparent")
-        mood_row.pack(fill="x", pady=(4, 0))
-        ctk.CTkLabel(mood_row, text="Mood", font=FONT_LBL,
-                     text_color=MUTED).pack(side="left")
-        self.mood_value = ctk.CTkLabel(
-            mood_row, text="—", font=FONT_MONO, text_color=TEXT)
-        self.mood_value.pack(side="right")
-
-        # ── Video panel ──
-        self.video_box = _section(root, "Video")
-        v = ctk.CTkFrame(self.video_box, fg_color="transparent")
-        v.pack(fill="x", padx=12, pady=12)
-
-        ctk.CTkLabel(v, text="Source", font=FONT_LBL,
-                     text_color=MUTED).pack(anchor="w")
-        self.source_var = ctk.StringVar(
-            value=self.cfg.get("video_source", "All Screens"))
+        s = ctk.CTkFrame(self.card_source.body, fg_color="transparent")
+        s.pack(fill="x", padx=16, pady=16)
+        self.source_var = ctk.StringVar(value="All Screens")
         self.source_menu = ctk.CTkOptionMenu(
-            v, variable=self.source_var, values=["All Screens"],
-            fg_color=SURFACE2, button_color=SURFACE2, button_hover_color=BORDER,
-            text_color=TEXT, dropdown_fg_color=SURFACE2,
-            dropdown_hover_color=BORDER, dropdown_text_color=TEXT,
+            s, variable=self.source_var, values=["All Screens"],
+            fg_color=SURFACE2, button_color=SURFACE2,
+            button_hover_color=BORDER, text_color=TEXT,
+            dropdown_fg_color=SURFACE2, dropdown_hover_color=BORDER,
+            dropdown_text_color=TEXT,
             command=lambda _=None: self._source_changed(), height=32)
-        self.source_menu.pack(fill="x", pady=(4, 4))
-        refresh = ctk.CTkButton(
-            v, text="Refresh sources", command=self._refresh_sources,
-            height=26, fg_color="transparent", hover_color=SURFACE2,
-            text_color=MUTED, font=FONT_CAP)
-        refresh.pack(anchor="w")
+        self.source_menu.pack(fill="x")
+        ctk.CTkButton(
+            s, text="Refresh window list", command=self._refresh_sources,
+            height=24, corner_radius=6, font=FONT_CAP,
+            fg_color="transparent", hover_color=SURFACE2,
+            text_color=MUTED).pack(anchor="w", pady=(8, 0))
 
-        ctk.CTkLabel(v, text="Smoothing", font=FONT_LBL,
-                     text_color=MUTED).pack(anchor="w", pady=(10, 0))
-        self.smooth_slider = ctk.CTkSlider(
-            v, from_=0.03, to=0.4, number_of_steps=37,
-            fg_color=SURFACE2, progress_color=ACCENT, button_color=TEXT,
-            button_hover_color=ACCENT, command=lambda _=None: self._save_cfg())
-        self.smooth_slider.set(self.cfg.get("video_smoothing", 0.15))
-        self.smooth_slider.pack(fill="x", pady=(4, 0))
+        # ── Footer status + Start ──
+        footer = ctk.CTkFrame(self.setup_view, fg_color="transparent")
+        footer.pack(side="bottom", fill="x", padx=24, pady=(0, 24))
 
-        # ── Preview ──
-        box = _section(root, "Preview")
-        p = ctk.CTkFrame(box, fg_color="transparent")
-        p.pack(fill="x", padx=12, pady=12)
+        self.footer_status = ctk.CTkLabel(
+            footer, text="", font=FONT_LBL, text_color=MUTED)
+        self.footer_status.pack(pady=(0, 10))
+
+        self.start_btn = ctk.CTkButton(
+            footer, text="Start", command=self._start, state="disabled",
+            height=46, corner_radius=12, font=FONT_BTN,
+            fg_color=ACCENT, hover_color=ACCENT_HOVER, text_color="#ffffff")
+        self.start_btn.pack(fill="x")
+
+        self._mode_changed()
+
+    # ── Running view ────────────────────────────────────────────────────
+    def _build_running_view(self):
+        root = ctk.CTkFrame(self.running_view, fg_color="transparent")
+        root.pack(fill="both", expand=True, padx=24, pady=24)
+
+        ctk.CTkLabel(root, text="Aura",
+                     font=FONT_TITLE, text_color=TEXT).pack(anchor="w")
+        self.running_subtitle = ctk.CTkLabel(
+            root, text="", font=FONT_BODY, text_color=MUTED)
+        self.running_subtitle.pack(anchor="w", pady=(0, 24))
+
+        # Big swatch
         self.swatch = ctk.CTkFrame(
-            p, fg_color="#000000", corner_radius=8, height=54,
-            border_width=1, border_color=BORDER)
+            root, fg_color="#000000", corner_radius=14,
+            height=140, border_width=0)
         self.swatch.pack(fill="x")
         self.swatch.pack_propagate(False)
         self.swatch_label = ctk.CTkLabel(
             self.swatch, text="—", font=FONT_MONO, text_color=TEXT)
         self.swatch_label.place(relx=0.5, rely=0.5, anchor="center")
 
-        lvl_row = ctk.CTkFrame(p, fg_color="transparent")
-        lvl_row.pack(fill="x", pady=(8, 0))
-        ctk.CTkLabel(lvl_row, text="Level", font=FONT_LBL,
-                     text_color=MUTED).pack(side="left")
-        self.level_bar = ctk.CTkProgressBar(
-            lvl_row, height=4, fg_color=SURFACE2, progress_color=ACCENT)
-        self.level_bar.set(0)
-        self.level_bar.pack(side="left", fill="x", expand=True, padx=(8, 0))
+        # Metrics under swatch
+        metrics = ctk.CTkFrame(root, fg_color="transparent")
+        metrics.pack(fill="x", pady=(20, 0))
 
-        # ── Options ──
-        box = _section(root, "Options")
-        o = ctk.CTkFrame(box, fg_color="transparent")
-        o.pack(fill="x", padx=12, pady=12)
-        self.cc_var = ctk.BooleanVar(
-            value=self.cfg.get("color_correction", True))
-        ctk.CTkCheckBox(
-            o, text="Color correction", variable=self.cc_var,
-            command=self._cc_changed, font=FONT_LBL, text_color=TEXT,
-            fg_color=ACCENT, hover_color=ACCENT, border_color=BORDER,
-            checkmark_color=BG).pack(anchor="w")
-        self.as_var = ctk.BooleanVar(value=self.cfg.get("auto_start", False))
-        ctk.CTkCheckBox(
-            o, text="Auto-start on launch", variable=self.as_var,
-            command=self._save_cfg, font=FONT_LBL, text_color=TEXT,
-            fg_color=ACCENT, hover_color=ACCENT, border_color=BORDER,
-            checkmark_color=BG).pack(anchor="w", pady=(6, 0))
-        self.sh_var = ctk.BooleanVar(value=self.cfg.get("start_hidden", False))
-        ctk.CTkCheckBox(
-            o, text="Start hidden in menu bar", variable=self.sh_var,
-            command=self._save_cfg, font=FONT_LBL, text_color=TEXT,
-            fg_color=ACCENT, hover_color=ACCENT, border_color=BORDER,
-            checkmark_color=BG).pack(anchor="w", pady=(6, 0))
+        def _metric(label):
+            row = ctk.CTkFrame(metrics, fg_color="transparent")
+            row.pack(fill="x", pady=(6, 0))
+            ctk.CTkLabel(row, text=label, font=FONT_LBL,
+                         text_color=MUTED, width=88,
+                         anchor="w").pack(side="left")
+            bar = ctk.CTkProgressBar(
+                row, height=4, fg_color=SURFACE2,
+                progress_color=ACCENT, corner_radius=2)
+            bar.set(0)
+            bar.pack(side="left", fill="x", expand=True, padx=(0, 10))
+            val = ctk.CTkLabel(row, text="—", font=FONT_MONO,
+                               text_color=TEXT, width=44, anchor="e")
+            val.pack(side="right")
+            return bar, val
 
-        # ── Status + Start ──
-        self.status_label = ctk.CTkLabel(
-            root, text="Ready", font=FONT_LBL, text_color=MUTED)
-        self.status_label.pack(pady=(14, 6))
+        self.run_level_bar, self.run_level_val = _metric("Level")
+        self.run_chroma_bar, self.run_chroma_val = _metric("Chroma")
+        self.run_lum_bar, self.run_lum_val = _metric("Luminance")
 
-        self.start_btn = ctk.CTkButton(
-            root, text="Start", command=self._toggle, state="disabled",
-            height=42, font=("SF Pro Display", 14, "bold"),
-            fg_color=TEXT, hover_color=ACCENT, text_color=BG)
-        self.start_btn.pack(fill="x", padx=18, pady=(0, 18))
+        # Mode-specific info row (BPM/Mood for audio)
+        self.info_row = ctk.CTkFrame(root, fg_color="transparent")
+        self.info_row.pack(fill="x", pady=(16, 0))
+        self.info_left = ctk.CTkLabel(
+            self.info_row, text="", font=FONT_LBL, text_color=MUTED,
+            anchor="w")
+        self.info_left.pack(side="left")
+        self.info_right = ctk.CTkLabel(
+            self.info_row, text="", font=FONT_LBL, text_color=MUTED,
+            anchor="e")
+        self.info_right.pack(side="right")
 
-    def _apply_cfg(self):
-        ip = self.cfg.get("bulb_ip", "")
-        if ip:
-            self.ip_entry.insert(0, ip)
-        self._mode_changed()
+        # Stop button
+        footer = ctk.CTkFrame(self.running_view, fg_color="transparent")
+        footer.pack(side="bottom", fill="x", padx=24, pady=(0, 24))
+        self.stop_btn = ctk.CTkButton(
+            footer, text="Stop", command=self._stop,
+            height=46, corner_radius=12, font=FONT_BTN,
+            fg_color=SURFACE2, hover_color=BORDER, text_color=TEXT)
+        self.stop_btn.pack(fill="x")
 
     # ────────────────────────────────────────────────────────────────────
-    # Settings persistence
+    # State transitions
     # ────────────────────────────────────────────────────────────────────
-    def _push_settings(self):
-        """Push current UI values into analyzers (call from main thread only)."""
-        try:
-            self.audio.sensitivity = float(self.sens_slider.get())
-            self.audio.snappy = (self.audio_style_var.get() == "snappy")
-            self.video.transition_speed = float(self.smooth_slider.get())
-        except Exception:
-            pass
+    def _show_setup(self):
+        self.running_view.pack_forget()
+        self.setup_view.pack(fill="both", expand=True)
 
-    def _save_cfg(self, *_):
-        self._push_settings()
-        self.cfg.update({
-            "bulb_ip": self.ip_entry.get().strip(),
-            "mode": self.mode_var.get(),
-            "audio_sensitivity": float(self.sens_slider.get()),
-            "audio_style": self.audio_style_var.get(),
-            "video_smoothing": float(self.smooth_slider.get()),
-            "video_source": self.source_var.get(),
-            "color_correction": bool(self.cc_var.get()),
-            "auto_start": bool(self.as_var.get()),
-            "start_hidden": bool(self.sh_var.get()),
-        })
+    def _show_running(self):
+        self.setup_view.pack_forget()
+        self.running_view.pack(fill="both", expand=True)
+
+    def _set_step1_status(self, text, color=MUTED):
+        self.bulb_status.configure(text=text, text_color=color)
+
+    def _set_footer(self, text, color=MUTED):
+        self.footer_status.configure(text=text, text_color=color)
+
+    def _refresh_start_state(self):
+        """Enable Start only when all preconditions are met."""
+        ready = bool(self._bulb_ip and self.bulb.connected)
+        if ready and self._mode == "video":
+            # source is always at least "All Screens"
+            ready = self.source_var.get() is not None
+        if ready:
+            self.start_btn.configure(state="normal")
+            self._set_footer("Ready", OK)
+        else:
+            self.start_btn.configure(state="disabled")
+
+    # ────────────────────────────────────────────────────────────────────
+    # Step 1 — Discover bulb
+    # ────────────────────────────────────────────────────────────────────
+    def _discover(self):
+        # Clear any troubleshoot block
+        for w in self.trouble.winfo_children():
+            w.destroy()
+        self.trouble.pack_forget()
+        self.find_btn.pack_forget()
+
+        self._set_step1_status("Searching for bulbs on your network…", MUTED)
+        self.bulb_status.update_idletasks()
+
+        # Step A: do we even have a network?
+        net_ok, net_label = _has_network()
+        if not net_ok:
+            self._show_troubleshoot(
+                title="Your Mac isn't on a network.",
+                checks=[
+                    ("Connect this Mac to the same Wi-Fi as your bulb.",
+                     False),
+                ])
+            return
+
+        def _do():
+            try:
+                bulbs = self.bulb.discover()
+            except Exception as e:
+                bulbs = []
+                self.logger.log("BULB", f"Discovery error: {e}")
+            self.after(0, lambda: self._on_discovered(bulbs, net_label))
+
+        threading.Thread(target=_do, daemon=True).start()
+
+    def _on_discovered(self, bulbs, net_label):
+        if not bulbs:
+            self._show_troubleshoot_not_found(net_label)
+            return
+
+        # Connect to the first bulb
+        ip = bulbs[0]["ip"]
+        self._set_step1_status(f"Found bulb at {ip} — connecting…", MUTED)
+
+        def _do():
+            ok = self.bulb.connect(ip)
+            self.after(0, lambda: self._on_connected(ok, ip))
+
+        threading.Thread(target=_do, daemon=True).start()
+
+    def _on_connected(self, ok, ip):
+        if not ok:
+            self._show_troubleshoot(
+                title=f"Found bulb at {ip} but couldn't connect.",
+                checks=[
+                    ("Make sure the bulb isn't busy in the WiZ app",
+                     False),
+                    ("Power-cycle the bulb (off 5s, then on)", False),
+                ])
+            return
+
+        self._bulb_ip = ip
+        self.cfg["bulb_ip"] = ip
         cfg_mod.save(self.cfg)
 
-    def _cc_changed(self):
-        self.bulb.color_correction = bool(self.cc_var.get())
-        self._save_cfg()
+        self._set_step1_status(f"●  Connected to bulb at {ip}", OK)
+        self.find_btn.pack(fill="x", pady=(12, 0))
+        self.find_btn.configure(text="Reconnect")
+
+        # Unlock step 2
+        self.seg_mode.configure(state="normal")
+        self.card_mode.set_enabled(True)
+        self._mode_changed()
+        self._refresh_start_state()
+
+    def _show_troubleshoot_not_found(self, net_label):
+        ssid = _ssid()
+        ssid_text = f" ({ssid})" if ssid else ""
+        self._show_troubleshoot(
+            title="Couldn't find a WiZ bulb on your network.",
+            checks=[
+                ("Bulb is plugged in and powered on", False),
+                ("Bulb is set up in the Philips WiZ app", False),
+                (f"This Mac is on Wi-Fi{ssid_text}, "
+                 f"same network as the bulb", False),
+                (f"Network interface: {net_label}", True),
+            ])
+
+    def _show_troubleshoot(self, title, checks):
+        self._set_step1_status(f"⚠  {title}", WARN)
+
+        # Build checklist UI
+        for w in self.trouble.winfo_children():
+            w.destroy()
+        ctk.CTkLabel(self.trouble, text="Check the following:",
+                     font=FONT_LBL, text_color=TEXT,
+                     anchor="w").pack(fill="x", pady=(12, 6))
+        for text, satisfied in checks:
+            row = ctk.CTkFrame(self.trouble, fg_color="transparent")
+            row.pack(fill="x", pady=(2, 0))
+            mark = "✓" if satisfied else "○"
+            mc = OK if satisfied else MUTED
+            ctk.CTkLabel(row, text=mark, font=FONT_LBL,
+                         text_color=mc, width=18,
+                         anchor="w").pack(side="left")
+            ctk.CTkLabel(row, text=text, font=FONT_LBL,
+                         text_color=TEXT if not satisfied else MUTED,
+                         anchor="w", justify="left").pack(side="left",
+                                                          fill="x",
+                                                          expand=True)
+
+        self.trouble.pack(fill="x", pady=(0, 0))
+        self.find_btn.pack(fill="x", pady=(12, 0))
+        self.find_btn.configure(text="Search again")
+
+        # Lock everything past step 1
+        self.seg_mode.configure(state="disabled")
+        self.card_mode.set_enabled(False)
+        self.card_source.pack_forget()
+        self._refresh_start_state()
 
     # ────────────────────────────────────────────────────────────────────
-    # Mode + sources
+    # Step 2 / 3 — Mode + source
     # ────────────────────────────────────────────────────────────────────
     def _mode_changed(self):
         self._mode = self.mode_var.get()
-        if self._mode == "audio":
-            self.video_box.master.pack_forget()
-            self.audio_box.master.pack(fill="x", padx=18, pady=(14, 0),
-                                       before=self._preview_parent())
-        else:
-            self.audio_box.master.pack_forget()
-            self.video_box.master.pack(fill="x", padx=18, pady=(14, 0),
-                                       before=self._preview_parent())
-            if len(self._windows) == 0:
-                self._refresh_sources()
-        self._save_cfg()
+        self.cfg["mode"] = self._mode
+        cfg_mod.save(self.cfg)
 
-    def _preview_parent(self):
-        # The Preview section's wrap frame — find it heuristically
-        # Just use the swatch's grandparent wrap
-        return self.swatch.master.master.master
+        if self._mode == "audio":
+            self.mode_caption.configure(
+                text="Reacts to system audio — music, video, anything "
+                     "playing through your Mac's output.")
+            self.card_source.pack_forget()
+        else:
+            self.mode_caption.configure(
+                text="Reacts to your screen content — pick a window or "
+                     "let it watch your whole display.")
+            self.card_source.pack(fill="x", pady=(0, 16),
+                                  before=self._source_anchor())
+            if not self._windows:
+                self._refresh_sources()
+
+        self._refresh_start_state()
+
+    def _source_anchor(self):
+        # Pack card_source just before the footer status — i.e., at the
+        # bottom of the cards stack
+        return self.card_mode
 
     def _refresh_sources(self):
         wins = self.video.list_windows()
         self._windows = wins
         values = ["All Screens"] + [w["label"] for w in wins]
         self.source_menu.configure(values=values)
-        # Preserve selection if still available
         cur = self.source_var.get()
         if cur not in values:
             self.source_var.set("All Screens")
@@ -351,119 +494,53 @@ class WizAmbientApp(ctk.CTk):
                 if w["label"] == sel:
                     self.video.target_window_id = w["id"]
                     break
-        self._save_cfg()
+        self._refresh_start_state()
 
     # ────────────────────────────────────────────────────────────────────
-    # Bulb
+    # Run / stop
     # ────────────────────────────────────────────────────────────────────
-    def _discover(self):
-        self.conn_status.configure(text="Searching…", text_color=WARN)
-        self.discover_btn.configure(state="disabled")
-
-        def _do():
-            bulbs = self.bulb.discover()
-            self.after(0, lambda: self._on_discovered(bulbs))
-
-        threading.Thread(target=_do, daemon=True).start()
-
-    def _on_discovered(self, bulbs):
-        self.discover_btn.configure(state="normal")
-        if bulbs:
-            ip = bulbs[0]["ip"]
-            self.ip_entry.delete(0, "end")
-            self.ip_entry.insert(0, ip)
-            self.conn_status.configure(text=f"Found {ip}", text_color=OK)
-            self._save_cfg()
-        else:
-            self.conn_status.configure(
-                text="No bulbs found. Enter IP manually.", text_color=WARN)
-
-    def _connect(self):
-        ip = self.ip_entry.get().strip()
-        if not ip:
-            self.conn_status.configure(text="Enter an IP", text_color=WARN)
-            return
-        self.conn_status.configure(text="Connecting…", text_color=WARN)
-        self.connect_btn.configure(state="disabled")
-
-        def _do():
-            ok = self.bulb.connect(ip)
-            self.after(0, lambda: self._on_connected(ok, ip))
-
-        threading.Thread(target=_do, daemon=True).start()
-
-    def _on_connected(self, ok, ip):
-        self.connect_btn.configure(state="normal")
-        if ok:
-            self.conn_status.configure(text=f"Connected {ip}", text_color=OK)
-            self.start_btn.configure(state="normal")
-            self._save_cfg()
-        else:
-            self.conn_status.configure(text="Failed. Check IP.", text_color=ERR)
-
-    def _auto_connect_and_start(self):
-        ip = self.cfg.get("bulb_ip", "")
-        if not ip:
-            return
-
-        def _do():
-            ok = self.bulb.connect(ip)
-            self.after(0, lambda: self._auto_continue(ok, ip))
-
-        threading.Thread(target=_do, daemon=True).start()
-
-    def _auto_continue(self, ok, ip):
-        if ok:
-            self.conn_status.configure(text=f"Connected {ip}", text_color=OK)
-            self.start_btn.configure(state="normal")
-            self._start()
-
-    # ────────────────────────────────────────────────────────────────────
-    # Start / stop loop
-    # ────────────────────────────────────────────────────────────────────
-    def _toggle(self):
-        if self._active:
-            self._stop()
-        else:
-            self._start()
-
     def _start(self):
         self._active = True
-        self.start_btn.configure(text="Stop", fg_color=ERR, text_color=TEXT)
-        mode = self._mode
-        self.logger.log("APP", f"Starting in {mode} mode")
+        self.logger.log("APP", f"Starting in {self._mode} mode")
 
-        if mode == "audio":
-            self.audio.sensitivity = float(self.sens_slider.get())
-            self.audio.snappy = (self.audio_style_var.get() == "snappy")
+        # Sensible auto-tuned defaults — sliders are gone
+        if self._mode == "audio":
+            self.audio.sensitivity = 1.5
+            self.audio.snappy = False
             self.audio.start()
+            self.running_subtitle.configure(text="Audio mode — listening")
         else:
-            self.video.transition_speed = float(self.smooth_slider.get())
+            self.video.transition_speed = 0.15  # legacy, unused now
             self.video.start()
+            sel = self.source_var.get()
+            self.running_subtitle.configure(
+                text=f"Video mode — {sel}")
 
+        self._show_running()
         threading.Thread(target=self._update_loop, daemon=True).start()
-        self._poll_status()
+        self._poll_running()
 
     def _stop(self):
         self._active = False
-        self.start_btn.configure(text="Start", fg_color=TEXT, text_color=BG)
         self.audio.stop()
         self.video.stop()
-        self.status_label.configure(text="Stopped", text_color=MUTED)
+        self.bulb.set_color(0, 0, 0, 0, force=True)
+        self._show_setup()
+        self._set_footer("Stopped", MUTED)
 
-    def _poll_status(self):
+    def _poll_running(self):
         if not self._active:
             return
         if self._mode == "audio":
-            st = self.audio.get_status()
-            self.bpm_value.configure(
-                text=f"{self.audio.bpm:.0f}" if self.audio.bpm else "—")
-            self.mood_value.configure(text=self.audio.current_mood)
+            bpm = self.audio.bpm
+            self.info_left.configure(
+                text=f"Mood: {self.audio.current_mood}")
+            self.info_right.configure(
+                text=f"BPM {bpm:.0f}" if bpm else "")
         else:
-            st = self.video.get_status()
-        color = OK if "error" not in st.lower() and "black" not in st.lower() else WARN
-        self.status_label.configure(text=st, text_color=color)
-        self.after(400, self._poll_status)
+            self.info_left.configure(text="")
+            self.info_right.configure(text="")
+        self.after(400, self._poll_running)
 
     def _update_loop(self):
         while self._active:
@@ -474,105 +551,57 @@ class WizAmbientApp(ctk.CTk):
                     self.bulb.set_color(r, g, b, bri, force=force)
                     energy = self.audio.energy
                     self.after(0, lambda rv=r, gv=g, bv=b, e=energy:
-                               self._update_swatch(rv, gv, bv, e))
+                               self._update_metrics(rv, gv, bv,
+                                                    level=e))
                 else:
                     r, g, b = self.video.get_color()
-                    bri = max(40, min(255, int((r + g + b) / 3 * 1.5)))
+                    lum = self.video.scene_luminance
+                    self.video._smooth_lum += (lum - self.video._smooth_lum) * 0.25
+                    sl = self.video._smooth_lum
+                    chroma = self.video.scene_chroma
+                    if sl < 0.04:
+                        bri = 0
+                    else:
+                        bri = max(1, min(255,
+                                         int(25 + (sl ** 0.7) * 230)))
                     self.bulb.set_color(r, g, b, bri)
-                    self.after(0, lambda rv=r, gv=g, bv=b:
-                               self._update_swatch(rv, gv, bv, 0))
+                    self.after(0, lambda rv=r, gv=g, bv=b,
+                               c=chroma, l=sl:
+                               self._update_metrics(rv, gv, bv,
+                                                    level=l, chroma=c,
+                                                    lum=l))
             except Exception:
                 pass
-            time.sleep(0.02)
+            time.sleep(0.05)
 
-    def _update_swatch(self, r, g, b, energy):
+    def _update_metrics(self, r, g, b, level=0.0, chroma=None, lum=None):
         try:
             self.swatch.configure(fg_color=f"#{r:02x}{g:02x}{b:02x}")
             self.swatch_label.configure(
-                text=f"{r},{g},{b}",
+                text=f"{r}, {g}, {b}",
                 text_color="#000000" if (r + g + b) > 360 else TEXT)
-            self.level_bar.set(min(1.0, energy))
+            self.run_level_bar.set(min(1.0, max(0.0, level)))
+            self.run_level_val.configure(text=f"{int(level * 100)}%")
+            if chroma is not None:
+                self.run_chroma_bar.set(min(1.0, max(0.0, chroma)))
+                self.run_chroma_val.configure(text=f"{int(chroma * 100)}%")
+            else:
+                self.run_chroma_bar.set(0)
+                self.run_chroma_val.configure(text="—")
+            if lum is not None:
+                self.run_lum_bar.set(min(1.0, max(0.0, lum)))
+                self.run_lum_val.configure(text=f"{int(lum * 100)}%")
+            else:
+                self.run_lum_bar.set(0)
+                self.run_lum_val.configure(text="—")
         except Exception:
             pass
 
     # ────────────────────────────────────────────────────────────────────
-    # Menu bar (NSStatusBar via PyObjC)
+    # Quit
     # ────────────────────────────────────────────────────────────────────
-    def _install_menu_bar(self):
-        try:
-            from AppKit import (NSStatusBar, NSVariableStatusItemLength,
-                                NSMenu, NSMenuItem)
-            from Foundation import NSObject
-            import objc
-
-            app_ref = self
-
-            class WizMenuTarget(NSObject):
-                def show_(self, sender):
-                    app_ref.after(0, app_ref._show_window)
-
-                def toggle_(self, sender):
-                    app_ref.after(0, app_ref._toggle)
-
-                def quit_(self, sender):
-                    app_ref.after(0, app_ref._really_quit)
-
-            bar = NSStatusBar.systemStatusBar()
-            self._status_item = bar.statusItemWithLength_(
-                NSVariableStatusItemLength)
-            self._status_item.button().setTitle_("●")
-
-            menu = NSMenu.alloc().init()
-            target = WizMenuTarget.alloc().init()
-            self._menu_target = target
-
-            show = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-                "Show WiZ Ambient", "show:", "")
-            show.setTarget_(target)
-            menu.addItem_(show)
-
-            tog = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-                "Start / Stop", "toggle:", "")
-            tog.setTarget_(target)
-            menu.addItem_(tog)
-
-            menu.addItem_(NSMenuItem.separatorItem())
-
-            q = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-                "Quit", "quit:", "q")
-            q.setTarget_(target)
-            menu.addItem_(q)
-
-            self._status_item.setMenu_(menu)
-            self.logger.log("APP", "Menu bar installed")
-        except Exception as e:
-            self.logger.log("APP", f"Menu bar unavailable: {e}")
-
-    def _show_window(self):
-        try:
-            self.deiconify()
-        except Exception:
-            pass
-        try:
-            self.lift()
-        except Exception:
-            pass
-        try:
-            self.attributes("-topmost", True)
-            self.after(100, lambda: self.attributes("-topmost", False))
-        except Exception:
-            pass
-
-    def _on_close_hide(self):
-        # Hide window; keep app alive in menu bar
-        try:
-            self.withdraw()
-        except Exception:
-            self._really_quit()
-
     def _really_quit(self):
         self._active = False
-        self._test_running = False
         try:
             self.audio.stop()
         except Exception:

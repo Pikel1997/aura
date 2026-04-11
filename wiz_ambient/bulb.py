@@ -90,45 +90,68 @@ def _correct_color(r: int, g: int, b: int) -> tuple[int, int, int]:
 class BulbController:
     """Controls a WiZ smart bulb over the local network."""
 
+    # Bulb hardware constants (verified from getModelConfig on ESP25_SHRGB_01)
+    TICK = 0.10           # 10 Hz — matches the bulb's accUdpPropRate (100 ms)
+    EASE = 0.65           # color ease per tick — half-life ~145ms, smooth glide
+    BRI_EASE = 0.80       # brightness eases faster than color: the eye notices
+                          # luminance changes before hue, so this *feels*
+                          # responsive even though hue takes its normal time
+    MIN_BRI = 26          # 10% floor — below this the bulb cannot dim → OFF
+    SCENE_CUT_DELTA = 90  # |ΔR|+|ΔG|+|ΔB| above this → snap, don't ease
+
     def __init__(self):
         self.bulb = None
         self.bulb_ip = None
         self.connected = False
-        self.color_correction = True  # Enable/disable correction
+        self.color_correction = True
         self._loop = asyncio.new_event_loop()
         self._thread = threading.Thread(target=self._run_loop, daemon=True)
         self._thread.start()
-        self._last_rgb = (-1, -1, -1)
-        self._last_bri = -1
-        self._last_send = 0
-        self._min_interval = 0.04  # ~25 updates/sec max
         self._consecutive_errors = 0
-        # Store what we actually sent (after correction) for UI display
+
+        # Animator state — public set_color() updates targets only;
+        # the animator task in _loop ticks at 10 Hz and eases current → target.
+        self._tgt_rgb = (0, 0, 0)
+        self._tgt_bri = 0
+        self._cur_rgb = (0.0, 0.0, 0.0)
+        self._cur_bri = 0.0
+        self._is_off = True
+        self._anim_started = False
+
+        # Last value actually sent to bulb (post-correction) for UI display
         self.last_corrected_rgb = (0, 0, 0)
 
     def _run_loop(self):
         asyncio.set_event_loop(self._loop)
         self._loop.run_forever()
 
-    def _run_async(self, coro):
+    def _run_async(self, coro, timeout=30):
         future = asyncio.run_coroutine_threadsafe(coro, self._loop)
-        return future.result(timeout=10)
+        return future.result(timeout=timeout)
 
     def discover(self) -> list[dict]:
         async def _discover():
-            found = []
-            for subnet in _local_broadcasts():
+            # Skip link-local (169.254.x.x) — those are macOS DHCP-failure
+            # addresses, never have bulbs. Walk the rest sequentially with
+            # a short wait_time and stop on the first hit. Parallel
+            # discovery doesn't work because pywizlight binds UDP 38899.
+            broadcasts = [b for b in _local_broadcasts()
+                          if not b.startswith("169.254.")]
+
+            for subnet in broadcasts:
                 try:
-                    bulbs = await discovery.discover_lights(broadcast_space=subnet)
-                    for b in bulbs or []:
-                        if not any(f["ip"] == b.ip for f in found):
-                            found.append({"ip": b.ip,
-                                          "mac": getattr(b, "mac", "unknown")})
+                    bulbs = await discovery.discover_lights(
+                        broadcast_space=subnet, wait_time=2)
+                    if bulbs:
+                        return [{"ip": b.ip,
+                                 "mac": getattr(b, "mac", "unknown")}
+                                for b in bulbs]
                 except Exception:
                     continue
-            return found
+            return []
         try:
-            return self._run_async(_discover())
+            # Worst case: ~6 broadcasts × 2s = 12s
+            return self._run_async(_discover(), timeout=20)
         except Exception:
             return []
 
@@ -142,7 +165,9 @@ class BulbController:
             self.bulb_ip = ip
             self.connected = True
             self._consecutive_errors = 0
-            self._last_rgb = (-1, -1, -1)
+            if not self._anim_started:
+                asyncio.run_coroutine_threadsafe(self._animator(), self._loop)
+                self._anim_started = True
             return True
         except Exception as e:
             print(f"Connection failed: {e}")
@@ -167,49 +192,98 @@ class BulbController:
     def set_color(self, r: int, g: int, b: int, brightness: int = 255,
                   force: bool = False):
         """
-        Set bulb color. Applies color correction, throttled to avoid flooding.
-        Use force=True to bypass dedup (for test buttons).
+        Update the animator's target color/brightness.
+
+        The actual UDP transmission happens in the animator coroutine at 10 Hz
+        with eased interpolation, matching the bulb's hardware tick rate.
+        Brightness below MIN_BRI (≈10%) → bulb off (no fade through the floor).
+
+        `force=True` snaps the current value to the target instantly — used by
+        test buttons so taps respond immediately instead of easing.
         """
         if not self.connected or not self.bulb:
             return
 
-        now = time.time()
-        if not force and now - self._last_send < self._min_interval:
-            return
-
         rgb = (max(0, min(255, r)), max(0, min(255, g)), max(0, min(255, b)))
-        bri = max(1, min(255, brightness))
-
-        # Apply color correction
-        if self.color_correction:
+        if self.color_correction and max(rgb) >= 8:
             rgb = _correct_color(*rgb)
         self.last_corrected_rgb = rgb
 
-        # Skip if color hasn't changed enough (unless forced)
-        if not force:
-            dr = abs(rgb[0] - self._last_rgb[0])
-            dg = abs(rgb[1] - self._last_rgb[1])
-            db = abs(rgb[2] - self._last_rgb[2])
-            if dr + dg + db < 4:
-                return
+        bri = max(0, min(255, int(brightness)))
+        self._tgt_rgb = rgb
+        self._tgt_bri = bri
 
-        self._last_rgb = rgb
-        self._last_bri = bri
-        self._last_send = now
+        if force:
+            self._cur_rgb = (float(rgb[0]), float(rgb[1]), float(rgb[2]))
+            self._cur_bri = float(bri)
 
-        async def _set():
+    async def _animator(self):
+        """10 Hz animator: eases current toward target, handles off cutoff."""
+        while True:
             try:
-                await self.bulb.turn_on(PilotBuilder(rgb=rgb, brightness=bri))
-                self._consecutive_errors = 0
+                await self._tick()
             except Exception:
                 self._consecutive_errors += 1
                 if self._consecutive_errors > 10:
                     self._reconnect()
+            await asyncio.sleep(self.TICK)
 
-        try:
-            asyncio.run_coroutine_threadsafe(_set(), self._loop)
-        except Exception:
-            pass
+    async def _tick(self):
+        if not self.bulb:
+            return
+
+        tgt_rgb = self._tgt_rgb
+        tgt_bri = self._tgt_bri
+
+        # Off path: target below floor → cut, don't fade through it
+        if tgt_bri < self.MIN_BRI:
+            if not self._is_off:
+                await self.bulb.turn_off()
+                self._is_off = True
+                self._cur_bri = 0.0
+                self._consecutive_errors = 0
+            return
+
+        # Coming back from off: snap on at the target (skip the 10% pop)
+        if self._is_off:
+            self._cur_rgb = (float(tgt_rgb[0]),
+                             float(tgt_rgb[1]),
+                             float(tgt_rgb[2]))
+            self._cur_bri = float(max(self.MIN_BRI, tgt_bri))
+            self._is_off = False
+            await self.bulb.turn_on(PilotBuilder(
+                rgb=tgt_rgb,
+                brightness=int(self._cur_bri)))
+            self._consecutive_errors = 0
+            return
+
+        # Scene-cut bypass: if the target jumped a lot, snap instantly so
+        # hard cuts in movies feel immediate. Slow gradients still ease.
+        delta = (abs(tgt_rgb[0] - self._cur_rgb[0])
+                 + abs(tgt_rgb[1] - self._cur_rgb[1])
+                 + abs(tgt_rgb[2] - self._cur_rgb[2]))
+        if delta > self.SCENE_CUT_DELTA:
+            e_color = 1.0  # snap on cuts
+            e_bri = 1.0
+        else:
+            e_color = self.EASE
+            e_bri = self.BRI_EASE  # brightness leads color (perceptual trick)
+
+        nr = self._cur_rgb[0] + (tgt_rgb[0] - self._cur_rgb[0]) * e_color
+        ng = self._cur_rgb[1] + (tgt_rgb[1] - self._cur_rgb[1]) * e_color
+        nb = self._cur_rgb[2] + (tgt_rgb[2] - self._cur_rgb[2]) * e_color
+        nbri = self._cur_bri + (tgt_bri - self._cur_bri) * e_bri
+        self._cur_rgb = (nr, ng, nb)
+        self._cur_bri = nbri
+
+        send_bri = max(self.MIN_BRI, min(255, int(round(nbri))))
+        send_rgb = (max(0, min(255, int(round(nr)))),
+                    max(0, min(255, int(round(ng)))),
+                    max(0, min(255, int(round(nb)))))
+
+        await self.bulb.turn_on(PilotBuilder(
+            rgb=send_rgb, brightness=send_bri))
+        self._consecutive_errors = 0
 
     def turn_off(self):
         if not self.connected or not self.bulb:

@@ -326,9 +326,13 @@ class AudioAnalyzer:
         palette = MOOD_PALETTES.get(mood, MOOD_PALETTES["chill"])
         base_r, base_g, base_b = palette["color"]
 
-        if energy < 0.05:
-            target_r, target_g, target_b = 25, 10, 5
-            target_bri = 15
+        if energy < 0.03:
+            # Silence → bulb off
+            self._smooth_r *= 0.5
+            self._smooth_g *= 0.5
+            self._smooth_b *= 0.5
+            self._smooth_bri *= 0.5
+            return (0, 0, 0, 0)
         else:
             intensity = 0.3 + energy * 0.7
             target_r = base_r * intensity
@@ -357,8 +361,8 @@ class AudioAnalyzer:
     def _get_color_snappy(self) -> tuple[int, int, int, int]:
         with self._lock:
             energy = self.energy
-        if energy < 0.05:
-            return (5, 5, 5, 10)
+        if energy < 0.03:
+            return (0, 0, 0, 0)
         r, g, b = self._snappy_current
         bri = int(max(80, self._snappy_bri * (0.5 + energy * 0.5)))
         return (r, g, b, min(255, bri))
