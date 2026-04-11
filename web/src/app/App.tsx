@@ -3,6 +3,7 @@ import { ThemeProvider, useTheme } from "./components/ThemeContext";
 import { Orb } from "./components/Orb";
 import { StatusPill } from "./components/StatusPill";
 import { InstallBridge } from "./components/InstallBridge";
+import { RequirementsModal } from "./components/RequirementsModal";
 import { GrainOverlay } from "./components/GrainOverlay";
 import { CropMarks } from "./components/CropMarks";
 import {
@@ -173,6 +174,11 @@ function AuraApp() {
   // the orb's breathe animation only — the physical bulb is unaffected.
   const [liveBpm, setLiveBpm] = useState<number | null>(null);
 
+  // Demo mode: skip the bridge entirely and run the orb visualization
+  // for users who don't have a Philips WiZ bulb yet (or just want to
+  // see what it does). Toggled by the first-load RequirementsModal.
+  const [demoMode, setDemoMode] = useState(false);
+
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -188,8 +194,20 @@ function AuraApp() {
   const lastBeatTimeRef = useRef(0);
   const beatTimesRef = useRef<number[]>([]);
 
+  // Mirror demoMode in a ref so the long-lived setInterval can read the
+  // current value without going stale across re-renders.
+  const demoModeRef = useRef(demoMode);
+  useEffect(() => { demoModeRef.current = demoMode; }, [demoMode]);
+
   // ── Bridge bootstrap ────────────────────────────────────────────
   const checkBridge = useCallback(async () => {
+    // Demo mode skips the bridge entirely — go straight to "idle"
+    // (which acts as "ready to capture, no bulb to control").
+    if (demoMode) {
+      setBulbIp(null);
+      setAppState("idle");
+      return;
+    }
     setAppState("checking");
     try {
       const status = await ping();
@@ -221,9 +239,12 @@ function AuraApp() {
     }
   }, []);
 
+  // The bridge bootstrap re-runs when demoMode flips so users can flow
+  // smoothly between "demo" and "real bulb" without reloading the page.
   useEffect(() => {
     checkBridge();
-  }, [checkBridge]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [demoMode]);
 
   // ── Audio analyzer (BPM only — bulb path is untouched) ─────────
   const tearDownAudio = useCallback(() => {
@@ -282,10 +303,12 @@ function AuraApp() {
     setMetrics({ r: 0, g: 0, b: 0, bri: 0, lum: 0, chr: 0 });
     easedRef.current = { r: 0, g: 0, b: 0, bri: 0 };
     lastSentRef.current = { r: -1, g: -1, b: -1, bri: -1 };
-    try {
-      await turnBulbOff();
-    } catch {
-      /* ignore */
+    if (!demoModeRef.current) {
+      try {
+        await turnBulbOff();
+      } catch {
+        /* ignore */
+      }
     }
     setAppState((s) => (s === "running" || s === "picking-tab" ? "idle" : s));
   }, [tearDownAudio]);
@@ -393,7 +416,9 @@ function AuraApp() {
           Math.abs(send.g - last.g) +
           Math.abs(send.b - last.b) >
           3 || Math.abs(send.bri - last.bri) > 3;
-      if (moved) {
+      // In demo mode the bulb path is skipped entirely — the orb still
+      // animates from `metrics`, we just don't POST to the bridge.
+      if (moved && !demoModeRef.current) {
         lastSentRef.current = send;
         setBulbColor(send.r, send.g, send.b, send.bri).catch(() => {
           stopCapture();
@@ -441,6 +466,48 @@ function AuraApp() {
     }
   }, [appState, startTicking, stopCapture, setUpAudio]);
 
+  // Hot-swap the captured source mid-session. Opens the picker again,
+  // tears down the current stream + audio analyzer, and sets up the
+  // new one without leaving the running state. If the user cancels
+  // the picker we keep the existing capture intact.
+  const switchTab = useCallback(async () => {
+    if (appState !== "running") return;
+    try {
+      const newStream = await navigator.mediaDevices.getDisplayMedia({
+        video: { frameRate: 30 } as MediaTrackConstraints,
+        audio: true,
+        preferCurrentTab: false,
+        selfBrowserSurface: "exclude",
+      } as DisplayMediaStreamOptions);
+
+      // Tear down the old stream + audio
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((tr) => tr.stop());
+      }
+      tearDownAudio();
+
+      // Wire up the new one
+      streamRef.current = newStream;
+      const newTrack = newStream.getVideoTracks()[0];
+      setTabName(friendlyTabName(newTrack));
+      setUpAudio(newStream);
+      newTrack.addEventListener("ended", () => { stopCapture(); });
+
+      const v = videoRef.current!;
+      v.srcObject = newStream;
+      await v.play();
+
+      // Reset the eased orb state so the new source doesn't ghost
+      easedRef.current = { r: 0, g: 0, b: 0, bri: 0 };
+      lastSentRef.current = { r: -1, g: -1, b: -1, bri: -1 };
+      bassHistoryRef.current = [];
+      beatTimesRef.current = [];
+      setLiveBpm(null);
+    } catch {
+      // User cancelled the picker — keep the existing capture running
+    }
+  }, [appState, tearDownAudio, setUpAudio, stopCapture]);
+
   useEffect(() => () => { stopCapture(); }, [stopCapture]);
 
   // ── Render ──────────────────────────────────────────────────────
@@ -450,6 +517,13 @@ function AuraApp() {
   const statusPill = (() => {
     switch (appState) {
       case "idle":
+        if (demoMode) {
+          return (
+            <StatusPill variant="violet">
+              Demo mode · No bulb required
+            </StatusPill>
+          );
+        }
         return <StatusPill variant="connected">Bulb connected · {bulbIp}</StatusPill>;
       case "checking":
         return <StatusPill variant="checking">Looking for the local bridge…</StatusPill>;
@@ -544,29 +618,54 @@ function AuraApp() {
         );
       case "running":
         return (
-          <button
-            onClick={stopCapture}
-            style={{
-              ...baseStyle,
-              background: "transparent",
-              color: t.textMuted,
-              padding: "10px 28px 9px",
-              border: `1px solid ${t.borderStrong}`,
-              fontSize: 15,
-            }}
-            onMouseEnter={(e) => {
-              const el = e.currentTarget as HTMLButtonElement;
-              el.style.color = t.text;
-              el.style.borderColor = t.isDark ? "rgba(255,255,255,0.28)" : "rgba(0,0,0,0.28)";
-            }}
-            onMouseLeave={(e) => {
-              const el = e.currentTarget as HTMLButtonElement;
-              el.style.color = t.textMuted;
-              el.style.borderColor = t.borderStrong;
-            }}
-          >
-            ⏻ STOP
-          </button>
+          <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+            <button
+              onClick={switchTab}
+              style={{
+                ...baseStyle,
+                background: "transparent",
+                color: t.textMuted,
+                padding: "10px 22px 9px",
+                border: `1px solid ${t.borderStrong}`,
+                fontSize: 14,
+              }}
+              onMouseEnter={(e) => {
+                const el = e.currentTarget as HTMLButtonElement;
+                el.style.color = t.text;
+                el.style.borderColor = t.isDark ? "rgba(255,255,255,0.28)" : "rgba(0,0,0,0.28)";
+              }}
+              onMouseLeave={(e) => {
+                const el = e.currentTarget as HTMLButtonElement;
+                el.style.color = t.textMuted;
+                el.style.borderColor = t.borderStrong;
+              }}
+            >
+              ↻ Switch Tab
+            </button>
+            <button
+              onClick={stopCapture}
+              style={{
+                ...baseStyle,
+                background: "transparent",
+                color: t.textMuted,
+                padding: "10px 28px 9px",
+                border: `1px solid ${t.borderStrong}`,
+                fontSize: 15,
+              }}
+              onMouseEnter={(e) => {
+                const el = e.currentTarget as HTMLButtonElement;
+                el.style.color = t.text;
+                el.style.borderColor = t.isDark ? "rgba(255,255,255,0.28)" : "rgba(0,0,0,0.28)";
+              }}
+              onMouseLeave={(e) => {
+                const el = e.currentTarget as HTMLButtonElement;
+                el.style.color = t.textMuted;
+                el.style.borderColor = t.borderStrong;
+              }}
+            >
+              ⏻ STOP
+            </button>
+          </div>
         );
       case "error":
         return (
@@ -922,15 +1021,73 @@ function AuraApp() {
           </>
         )}
 
-        {/* Single source of truth for setup info — always visible
-            below the orb (except in "running" mode, which we hide
-            so the live experience isn't cluttered). The component
-            only auto-polls /health when the bridge is actually
-            missing, otherwise it's purely informational so users
-            can copy the install command to set up another device. */}
-        {!isRunning && (
+        {/* Install panel: visible in every state except "running" and
+            demo mode. Demo mode skips the bridge entirely so install
+            instructions would be confusing. */}
+        {!isRunning && !demoMode && (
           <div style={{ width: "100%", maxWidth: 860, marginTop: 80 }}>
             <InstallBridge appState={appState} onBridgeOnline={checkBridge} />
+          </div>
+        )}
+
+        {/* Demo-mode helper card — lets users get a real bulb later
+            without reloading the page. */}
+        {!isRunning && demoMode && (
+          <div style={{
+            width: "100%",
+            maxWidth: 580,
+            marginTop: 80,
+            padding: "22px 28px",
+            background: t.surface,
+            border: `1px solid ${t.border}`,
+            textAlign: "center",
+            fontFamily: "'Space Mono', monospace",
+          }}>
+            <p style={{
+              fontSize: 9,
+              fontWeight: 700,
+              letterSpacing: "0.22em",
+              textTransform: "uppercase",
+              color: t.textSubtle,
+              marginBottom: 8,
+            }}>
+              Demo mode
+            </p>
+            <p style={{
+              fontSize: 12,
+              color: t.textMuted,
+              letterSpacing: "0.02em",
+              lineHeight: 1.7,
+              marginBottom: 14,
+            }}>
+              You're seeing the orb only — no physical bulb is being
+              controlled. Get a Philips WiZ smart bulb and switch
+              modes anytime.
+            </p>
+            <button
+              onClick={() => setDemoMode(false)}
+              style={{
+                background: "transparent",
+                color: t.text,
+                border: `1px solid ${t.borderStrong}`,
+                padding: "8px 20px 7px",
+                fontFamily: "'Bebas Neue', sans-serif",
+                fontSize: 13,
+                letterSpacing: "0.12em",
+                cursor: "pointer",
+                transition: "all 0.15s",
+              }}
+              onMouseEnter={(e) => {
+                (e.currentTarget as HTMLButtonElement).style.borderColor = t.isDark
+                  ? "rgba(255,255,255,0.28)"
+                  : "rgba(0,0,0,0.28)";
+              }}
+              onMouseLeave={(e) => {
+                (e.currentTarget as HTMLButtonElement).style.borderColor = t.borderStrong;
+              }}
+            >
+              I have a bulb — switch to bulb mode
+            </button>
           </div>
         )}
       </main>
@@ -1011,6 +1168,12 @@ function AuraApp() {
           ))}
         </div>
       )}
+
+      {/* First-load requirements modal — only shown once per browser */}
+      <RequirementsModal
+        onContinueWithBulb={() => setDemoMode(false)}
+        onContinueWithoutBulb={() => setDemoMode(true)}
+      />
 
       <style>{`
         @keyframes pulse-dot {
