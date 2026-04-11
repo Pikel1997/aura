@@ -1,20 +1,24 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTheme } from "./ThemeContext";
 import { ping } from "../../lib/bridge";
 
 interface Props {
   /**
-   * Called when the bridge starts responding to /health (the polling
-   * picks it up and the app should advance to "idle").
+   * Current app state. The polling indicator and auto-recheck only run
+   * when the bridge is actually missing — for every other state the
+   * panel is just informational so users can copy the install command
+   * for another device.
+   */
+  appState: string;
+  /**
+   * Called when /health starts responding while we're polling.
    */
   onBridgeOnline: () => void;
 }
 
-export function InstallBridge({ onBridgeOnline }: Props) {
+export function InstallBridge({ appState, onBridgeOnline }: Props) {
   const { t } = useTheme();
   const [copied, setCopied] = useState(false);
-  const [waiting, setWaiting] = useState(false);
-  const pollRef = useRef<number | null>(null);
 
   // The install command points at *this* deployment — whatever URL the
   // user is currently on. That way the curl URL and the install.sh path
@@ -24,39 +28,33 @@ export function InstallBridge({ onBridgeOnline }: Props) {
     return `curl -fsSL ${origin}/install.sh | bash`;
   }, []);
 
-  // Once the user clicks Copy, start polling /health every 2s.
-  // The moment the bridge responds, advance the parent state.
-  const startPolling = () => {
-    if (pollRef.current) return;
-    setWaiting(true);
-    pollRef.current = window.setInterval(async () => {
+  const needsBridge = appState === "no-bridge";
+
+  // Auto-poll /health every 2s while the bridge is missing. The moment
+  // it responds we advance the parent state out of no-bridge.
+  useEffect(() => {
+    if (!needsBridge) return;
+    const id = window.setInterval(async () => {
       try {
         const status = await ping();
         if (status?.service === "aura-bridge") {
-          if (pollRef.current) window.clearInterval(pollRef.current);
-          pollRef.current = null;
-          setWaiting(false);
+          window.clearInterval(id);
           onBridgeOnline();
         }
       } catch {
-        // keep polling
+        /* keep polling */
       }
     }, 2000);
-  };
-
-  useEffect(() => () => {
-    if (pollRef.current) window.clearInterval(pollRef.current);
-  }, []);
+    return () => window.clearInterval(id);
+  }, [needsBridge, onBridgeOnline]);
 
   const handleCopy = async () => {
     try {
       await navigator.clipboard.writeText(installCmd);
       setCopied(true);
       setTimeout(() => setCopied(false), 2400);
-      startPolling();
     } catch {
       /* clipboard blocked — user can still select manually */
-      startPolling();
     }
   };
 
@@ -179,8 +177,8 @@ export function InstallBridge({ onBridgeOnline }: Props) {
         </div>
       </div>
 
-      {/* Polling indicator */}
-      {waiting && (
+      {/* Polling indicator — only while the bridge is actually missing */}
+      {needsBridge && (
         <div style={{
           display: "flex",
           alignItems: "center",

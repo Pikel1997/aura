@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ThemeProvider, useTheme } from "./components/ThemeContext";
 import { Orb } from "./components/Orb";
 import { StatusPill } from "./components/StatusPill";
-import { SetupSection } from "./components/SetupSection";
 import { InstallBridge } from "./components/InstallBridge";
 import { GrainOverlay } from "./components/GrainOverlay";
 import { CropMarks } from "./components/CropMarks";
@@ -557,17 +556,6 @@ function AuraApp() {
             textTransform: "uppercase",
             transition: "color 0.45s ease",
           }}>v0.1.0</span>
-          {/* DEPLOY MARKER — temporary, remove once verified */}
-          <span style={{
-            fontSize: 10,
-            color: "#ff3c28",
-            letterSpacing: "0.14em",
-            textTransform: "uppercase",
-            fontWeight: 700,
-            marginLeft: 6,
-            padding: "2px 8px 1px",
-            border: "1px solid rgba(255,60,40,0.5)",
-          }}>HEY I'M KUNAL</span>
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: 22 }}>
@@ -800,21 +788,15 @@ function AuraApp() {
           </>
         )}
 
-        {/* When the bridge isn't running, show the polished one-line
-            installer instead of the manual setup steps. The installer
-            polls /health and auto-advances the parent state once the
-            bridge comes online. */}
-        {appState === "no-bridge" && (
+        {/* Single source of truth for setup info — always visible
+            below the orb (except in "running" mode, which we hide
+            so the live experience isn't cluttered). The component
+            only auto-polls /health when the bridge is actually
+            missing, otherwise it's purely informational so users
+            can copy the install command to set up another device. */}
+        {!isRunning && (
           <div style={{ width: "100%", maxWidth: 860, marginTop: 80 }}>
-            <InstallBridge onBridgeOnline={checkBridge} />
-          </div>
-        )}
-
-        {/* For other "in progress" states, keep the brief manual setup
-            (just informational — the bridge is already there). */}
-        {(appState === "idle" || appState === "checking" || appState === "no-bulb") && (
-          <div style={{ width: "100%", maxWidth: 860, marginTop: 100 }}>
-            <SetupSection />
+            <InstallBridge appState={appState} onBridgeOnline={checkBridge} />
           </div>
         )}
       </main>
