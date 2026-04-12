@@ -98,6 +98,7 @@ class BulbController:
                           # responsive even though hue takes its normal time
     MIN_BRI = 26          # 10% floor — below this the bulb cannot dim → OFF
     SCENE_CUT_DELTA = 90  # |ΔR|+|ΔG|+|ΔB| above this → snap, don't ease
+    HOLD_TIME = 1.5       # seconds to hold at MIN_BRI before cutting to OFF
 
     def __init__(self):
         self.bulb = None
@@ -117,6 +118,7 @@ class BulbController:
         self._cur_bri = 0.0
         self._is_off = True
         self._anim_started = False
+        self._dark_since = None  # timestamp when target first dropped below MIN_BRI
 
         # Last value actually sent to bulb (post-correction) for UI display
         self.last_corrected_rgb = (0, 0, 0)
@@ -235,14 +237,34 @@ class BulbController:
         tgt_rgb = self._tgt_rgb
         tgt_bri = self._tgt_bri
 
-        # Off path: target below floor → cut, don't fade through it
+        # Off path: target below floor → hold at MIN_BRI, then cut
         if tgt_bri < self.MIN_BRI:
-            if not self._is_off:
+            if self._is_off:
+                # Already off — nothing to do
+                return
+            if self._dark_since is None:
+                # First tick below threshold — start holding
+                self._dark_since = time.time()
+            elapsed = time.time() - self._dark_since
+            if elapsed > self.HOLD_TIME:
+                # Held long enough — actually turn off
                 await self.bulb.turn_off()
                 self._is_off = True
                 self._cur_bri = 0.0
+                self._dark_since = None
                 self._consecutive_errors = 0
+                return
+            # Still within hold window — send previous color at MIN_BRI
+            send_rgb = (max(0, min(255, int(round(self._cur_rgb[0])))),
+                        max(0, min(255, int(round(self._cur_rgb[1])))),
+                        max(0, min(255, int(round(self._cur_rgb[2])))))
+            await self.bulb.turn_on(PilotBuilder(
+                rgb=send_rgb, brightness=self.MIN_BRI))
+            self._consecutive_errors = 0
             return
+
+        # Non-dark target — cancel any pending off
+        self._dark_since = None
 
         # Coming back from off: snap on at the target (skip the 10% pop)
         if self._is_off:

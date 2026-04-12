@@ -77,8 +77,22 @@ export function StatusPill({ variant, children, onClick }: StatusPillProps) {
         style={{
           ...visual,
           cursor: "pointer",
+          padding: "10px 20px 9px",
+          background: `${c.dot}18`,
+          borderColor: `${c.dot}66`,
+          fontWeight: 700,
           // Custom focus ring matching the variant color
           outline: "none",
+        }}
+        onMouseEnter={(e) => {
+          const el = e.currentTarget as HTMLButtonElement;
+          el.style.background = `${c.dot}28`;
+          el.style.borderColor = `${c.dot}99`;
+        }}
+        onMouseLeave={(e) => {
+          const el = e.currentTarget as HTMLButtonElement;
+          el.style.background = `${c.dot}18`;
+          el.style.borderColor = `${c.dot}66`;
         }}
         onFocus={(e) => {
           (e.currentTarget as HTMLButtonElement).style.boxShadow =

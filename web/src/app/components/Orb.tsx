@@ -16,7 +16,7 @@ interface OrbConfig {
 const configs: Record<OrbState, OrbConfig> = {
   idle: {
     size: 280,
-    core: "radial-gradient(circle at 40% 35%, rgba(255,255,255,0.28) 0%, #a080ff 18%, #6040e0 40%, #2a1280 70%, #0e0520 100%)",
+    core: "radial-gradient(circle at 40% 35%, rgba(255,255,255,0.45) 0%, #b898ff 14%, #8060f0 32%, #5030c8 55%, #2a1680 78%, #140a40 100%)",
     shadow: "0 0 40px 8px rgba(140,90,255,0.55), 0 0 100px 30px rgba(100,50,240,0.28), 0 0 200px 60px rgba(80,30,200,0.10)",
     lightShadow: "0 0 40px 12px rgba(100,50,240,0.55), 0 0 100px 36px rgba(80,30,220,0.30), 0 20px 60px 10px rgba(0,0,0,0.18)",
     ring1: "rgba(140,90,255,0.10)",
@@ -26,7 +26,7 @@ const configs: Record<OrbState, OrbConfig> = {
   },
   checking: {
     size: 280,
-    core: "radial-gradient(circle at 40% 35%, rgba(255,255,255,0.18) 0%, #7060cc 20%, #402888 44%, #1a1050 72%, #080418 100%)",
+    core: "radial-gradient(circle at 40% 35%, rgba(255,255,255,0.38) 0%, #9078e0 16%, #6848c0 36%, #3a2090 60%, #1a1058 80%, #0c0830 100%)",
     shadow: "0 0 30px 6px rgba(100,70,200,0.40), 0 0 80px 24px rgba(70,40,180,0.18)",
     lightShadow: "0 0 30px 10px rgba(80,50,200,0.50), 0 0 80px 28px rgba(60,30,180,0.22), 0 16px 48px 8px rgba(0,0,0,0.14)",
     ring1: "rgba(100,70,200,0.08)",
@@ -56,7 +56,7 @@ const configs: Record<OrbState, OrbConfig> = {
   },
   "picking-tab": {
     size: 280,
-    core: "radial-gradient(circle at 40% 35%, rgba(255,255,255,0.28) 0%, #a080ff 18%, #6040e0 40%, #2a1280 70%, #0e0520 100%)",
+    core: "radial-gradient(circle at 40% 35%, rgba(255,255,255,0.45) 0%, #b898ff 14%, #8060f0 32%, #5030c8 55%, #2a1680 78%, #140a40 100%)",
     shadow: "0 0 40px 8px rgba(140,90,255,0.55), 0 0 100px 30px rgba(100,50,240,0.28)",
     lightShadow: "0 0 40px 12px rgba(100,50,240,0.55), 0 0 100px 36px rgba(80,30,220,0.30), 0 20px 60px 10px rgba(0,0,0,0.18)",
     ring1: "rgba(140,90,255,0.10)",

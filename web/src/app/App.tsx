@@ -118,10 +118,10 @@ function friendlyTabName(track: MediaStreamTrack): string {
   }
 
   // Truly empty / internal-only — fall back by surface
-  if (surface === "browser") return "Browser tab";
+  if (surface === "browser") return "Screen capture";
   if (surface === "window") return "Application window";
   if (surface === "monitor") return "Entire screen";
-  return "Captured source";
+  return "Screen capture";
 }
 
 // ── Theme toggle ─────────────────────────────────────────────────
@@ -803,13 +803,15 @@ function AuraApp() {
             onClick={checkBridge}
             style={{
               ...baseStyle,
-              background: "transparent",
-              color: "#cc1800",
-              padding: "12px 36px 10px",
-              border: "1px solid rgba(204,24,0,0.4)",
+              background: "rgba(160,20,10,0.85)",
+              color: "#ffffff",
+              padding: "14px 40px 12px",
+              minHeight: 48,
+              border: "none",
+              boxShadow: "0 2px 12px rgba(180,20,10,0.35)",
             }}
-            onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.borderColor = "rgba(204,24,0,0.8)"; }}
-            onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.borderColor = "rgba(204,24,0,0.4)"; }}
+            onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.filter = "brightness(1.15)"; }}
+            onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.filter = "none"; }}
           >
             Retry Connection →
           </button>

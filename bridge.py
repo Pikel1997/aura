@@ -137,26 +137,6 @@ class Handler(BaseHTTPRequestHandler):
                     "last_color": list(state["last_color"]),
                     "last_bri": state["last_bri"],
                 })
-            elif self.path == "/model":
-                if not bulb.connected or not bulb.bulb:
-                    code, data = _err("bulb not connected", 409)
-                else:
-                    import asyncio
-                    async def _get_model():
-                        try:
-                            cfg = await bulb.bulb.getModelConfig()
-                            r = cfg.get("result", cfg) if isinstance(cfg, dict) else {}
-                            return {
-                                "moduleName": r.get("moduleName", "unknown"),
-                                "fwVersion": r.get("fwVersion", "unknown"),
-                            }
-                        except Exception as e:
-                            return {"moduleName": "unknown", "error": str(e)}
-                    try:
-                        model = bulb._run_async(_get_model())
-                        code, data = _ok(model)
-                    except Exception:
-                        code, data = _ok({"moduleName": "unknown"})
             else:
                 code, data = _err("not found", 404)
         except Exception as e:

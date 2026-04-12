@@ -351,12 +351,48 @@ class VideoAnalyzer:
     SAT_FLOOR = 0.15  # below this a pixel is "grey" → ignored for hue voting
     LUM_FLOOR = 0.08  # below this a pixel is "dark" → ignored for hue voting
 
+    def _crop_letterbox(self, frame: np.ndarray) -> np.ndarray:
+        """Detect and crop letterbox bars (black rows/columns at edges)."""
+        h, w = frame.shape[:2]
+        # Scan from top
+        top = 0
+        for y in range(h // 4):  # don't crop more than 25%
+            if frame[y, :, :].mean() < 5:
+                top = y + 1
+            else:
+                break
+        # Scan from bottom
+        bottom = h
+        for y in range(h - 1, h - h // 4, -1):
+            if frame[y, :, :].mean() < 5:
+                bottom = y
+            else:
+                break
+        # Scan from left
+        left = 0
+        for x in range(w // 4):
+            if frame[:, x, :].mean() < 5:
+                left = x + 1
+            else:
+                break
+        # Scan from right
+        right = w
+        for x in range(w - 1, w - w // 4, -1):
+            if frame[:, x, :].mean() < 5:
+                right = x
+            else:
+                break
+        if top >= bottom or left >= right:
+            return frame  # no valid crop
+        return frame[top:bottom, left:right, :]
+
     def _sample_edge_ring(self, frame: np.ndarray) -> np.ndarray:
         """
         Return the four edge strips of `frame` (top/bottom/left/right) stacked
         as a single (N, 3) array of uint8 pixels. The strips are downsized so
         the total pixel budget stays bounded regardless of screen size.
         """
+        frame = self._crop_letterbox(frame)
         h, w = frame.shape[:2]
         ew = max(1, int(w * self.EDGE_FRACTION))
         eh = max(1, int(h * self.EDGE_FRACTION))
