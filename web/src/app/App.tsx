@@ -4,7 +4,7 @@ import { Orb } from "./components/Orb";
 import { StatusPill } from "./components/StatusPill";
 import { InstallBridge } from "./components/InstallBridge";
 import { RequirementsModal } from "./components/RequirementsModal";
-import { WaveformRing } from "./components/WaveformRing";
+import { WaveformWidget } from "./components/WaveformWidget";
 import { GrainOverlay } from "./components/GrainOverlay";
 import { CropMarks } from "./components/CropMarks";
 import {
@@ -1073,15 +1073,6 @@ function AuraApp() {
         )}
 
         <div style={{ position: "relative" }}>
-          {/* Waveform ring — radial frequency bars behind the orb,
-              only when running + audio is shared */}
-          {isRunning && audioShared && (
-            <WaveformRing
-              fftRef={audioFftRef}
-              color={{ r: metrics.r, g: metrics.g, b: metrics.b }}
-              size={orbRunningSize}
-            />
-          )}
           <Orb
             state={appState}
             liveColor={isRunning ? { r: metrics.r, g: metrics.g, b: metrics.b } : undefined}
@@ -1393,6 +1384,14 @@ function AuraApp() {
             >{STATE_LABELS[s]}</button>
           ))}
         </div>
+      )}
+
+      {/* Compact waveform widget — bottom-left corner, running + audio only */}
+      {isRunning && audioShared && (
+        <WaveformWidget
+          fftRef={audioFftRef}
+          color={{ r: metrics.r, g: metrics.g, b: metrics.b }}
+        />
       )}
 
       {/* Pre-flight requirements modal — opened on first Start click */}
