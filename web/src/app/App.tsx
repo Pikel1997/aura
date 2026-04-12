@@ -389,7 +389,6 @@ function AuraApp() {
   // Reads bass-band FFT, compares to a rolling average, debounces beats,
   // computes BPM as median interval over the last 8 beats. Drives the
   // orb's pulse only — does NOT touch the bulb code path.
-  const beatLogCountRef = useRef(0);
   const detectBeat = useCallback(() => {
     const analyser = analyserRef.current;
     const fft = audioFftRef.current;
@@ -397,28 +396,23 @@ function AuraApp() {
 
     analyser.getByteFrequencyData(fft);
 
-    // Debug: log first 20 ticks to see if data is flowing
-    beatLogCountRef.current++;
-    if (beatLogCountRef.current <= 20 || beatLogCountRef.current % 50 === 0) {
-      const max = Math.max(...Array.from(fft.slice(0, 64)));
-      // eslint-disable-next-line no-console
-      console.log(`[Aura FFT] tick=${beatLogCountRef.current} max=${max} ctx=${audioCtxRef.current?.state}`);
-    }
-
-    // Bass band: bins 1-10 ≈ 40-450 Hz at fftSize 1024 / sampleRate ~48k
-    let bass = 0;
-    for (let i = 1; i <= 10; i++) bass += fft[i];
-    bass /= 10;
+    // Use a wide band (bins 1-20, roughly 40-900 Hz) so we catch beats
+    // in any genre — not just bass-heavy electronic music. Vocals, drums,
+    // guitars all have energy in this range.
+    let energy = 0;
+    for (let i = 1; i <= 20; i++) energy += fft[i];
+    energy /= 20;
 
     const history = bassHistoryRef.current;
-    history.push(bass);
+    history.push(energy);
     if (history.length > 43) history.shift();
-    if (history.length < 10) return;
+    if (history.length < 8) return; // reduced from 10 → 8
 
     const avg = history.reduce((a, b) => a + b, 0) / history.length;
     const now = performance.now();
-    const cooldownOk = now - lastBeatTimeRef.current > 220;
-    const isOnset = bass > avg * 1.45 && bass > 30 && cooldownOk;
+    const cooldownOk = now - lastBeatTimeRef.current > 200;
+    // Relaxed thresholds: floor from 30 → 8, onset ratio from 1.45 → 1.25
+    const isOnset = energy > avg * 1.25 && energy > 8 && cooldownOk;
     if (!isOnset) return;
 
     lastBeatTimeRef.current = now;
@@ -426,22 +420,21 @@ function AuraApp() {
     beats.push(now);
     // Keep last ~5s of beats
     while (beats.length > 0 && now - beats[0] > 5000) beats.shift();
-    if (beats.length < 4) return;
+    if (beats.length < 3) return; // reduced from 4 → 3
 
     // Median inter-beat interval, filtered to musical range
     const intervals: number[] = [];
     for (let i = 1; i < beats.length; i++) {
       const dt = beats[i] - beats[i - 1];
-      if (dt > 250 && dt < 1100) intervals.push(dt);
+      if (dt > 200 && dt < 1500) intervals.push(dt); // widened from 250-1100
     }
-    if (intervals.length < 3) return;
+    if (intervals.length < 2) return; // reduced from 3 → 2
     intervals.sort((a, b) => a - b);
     const median = intervals[Math.floor(intervals.length / 2)];
     const rawBpm = 60000 / median;
-    if (rawBpm < 60 || rawBpm > 180) return;
+    if (rawBpm < 40 || rawBpm > 220) return; // widened from 60-180
 
-    // Smoothed BPM
-    setLiveBpm((prev) => (prev ? prev * 0.65 + rawBpm * 0.35 : rawBpm));
+    setLiveBpm((prev) => (prev ? prev * 0.6 + rawBpm * 0.4 : rawBpm));
   }, []);
 
   const startTicking = useCallback(() => {
@@ -1162,23 +1155,14 @@ function AuraApp() {
                 has been locked yet. */}
             {(() => {
               const bpmValue = liveBpm ? Math.round(liveBpm) : null;
-              // Debug: log audio state on every render so we can see
-              // what's happening in the console (open DevTools → Console)
-              const ctxState = audioCtxRef.current?.state ?? "none";
-              const hasAnalyser = !!analyserRef.current;
-              const hasFft = !!audioFftRef.current;
-              // eslint-disable-next-line no-console
-              if (audioShared) console.log("[Aura BPM]", { audioShared, ctxState, hasAnalyser, hasFft, liveBpm });
-
               let primary: string;
               let helper: string;
               if (!audioShared) {
                 primary = "—";
-                helper = "BPM · tick 'share audio' in picker";
+                helper = "BPM · share tab audio";
               } else if (bpmValue == null) {
                 primary = "—";
-                // Show diagnostic state so the user knows it's trying
-                helper = `BPM · ${ctxState === "running" ? "listening…" : "ctx:" + ctxState}`;
+                helper = "BPM · detecting…";
               } else {
                 primary = String(bpmValue);
                 helper = "BPM";
