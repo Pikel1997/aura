@@ -13,6 +13,7 @@ import {
   connectBulb,
   setBulbColor,
   turnBulbOff,
+  getModel,
   BRIDGE_URL,
 } from "../lib/bridge";
 import { extractAuraColor, lumToBrightness } from "../lib/colors";
@@ -188,6 +189,7 @@ function AuraApp() {
 
   const [appState, setAppState] = useState<AppState>("checking");
   const [bulbIp, setBulbIp] = useState<string | null>(null);
+  const [bulbModel, setBulbModel] = useState<string | null>(null);
   const [tabName, setTabName] = useState<string | null>(null);
   const [metrics, setMetrics] = useState({
     r: 0, g: 0, b: 0, bri: 0, lum: 0, chr: 0,
@@ -259,6 +261,9 @@ function AuraApp() {
   const bassHistoryRef = useRef<number[]>([]);
   const lastBeatTimeRef = useRef(0);
   const beatTimesRef = useRef<number[]>([]);
+  // Pre-created AudioContext from the Start click gesture. Stored in a
+  // ref so it survives the async modal → bridge → useEffect chain.
+  const preAudioCtxRef = useRef<AudioContext | null>(null);
 
   // Mirror demoMode in a ref so the long-lived setInterval can read the
   // current value without going stale across re-renders.
@@ -280,6 +285,7 @@ function AuraApp() {
       if (status.connected && status.ip) {
         setBulbIp(status.ip);
         setAppState("idle");
+        getModel().then((m) => setBulbModel(m.moduleName)).catch(() => {});
         return;
       }
       try {
@@ -293,6 +299,7 @@ function AuraApp() {
         if (ok) {
           setBulbIp(bulbs[0].ip);
           setAppState("idle");
+          getModel().then((m) => setBulbModel(m.moduleName)).catch(() => {});
         } else {
           setAppState("no-bulb");
         }
@@ -501,16 +508,11 @@ function AuraApp() {
     if (appState !== "idle") return;
     setAppState("picking-tab");
 
-    // Pre-create the AudioContext NOW — the Start click is the user
-    // gesture, and Chrome blocks AudioContext creation after async
-    // boundaries (like getDisplayMedia). Creating it here guarantees
-    // it lands in the gesture context.
-    let preCtx: AudioContext | undefined;
-    try {
-      preCtx = new (window.AudioContext
-        || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
-      preCtx.resume().catch(() => {});
-    } catch { /* ignore — setUpAudio will handle gracefully */ }
+    // Consume the pre-created AudioContext from handleStartClick. It
+    // was created in the user gesture and stored in a ref so it
+    // survives the async chain.
+    const preCtx = preAudioCtxRef.current ?? undefined;
+    preAudioCtxRef.current = null;
 
     try {
       const stream = await navigator.mediaDevices.getDisplayMedia({
@@ -606,20 +608,29 @@ function AuraApp() {
   }, [demoMode, appState, bulbIp, startCapture]);
 
   const handleStartClick = useCallback(() => {
-    // Mobile gate: getDisplayMedia + tab capture isn't a real
-    // experience on phones.
     if (isMobile) {
       setMobileBlocked(true);
       return;
     }
-    // Smart skip: if the bridge is already connected to a bulb, the
-    // yes/no question is redundant — go straight to capture.
+    // Pre-create AudioContext RIGHT HERE in the click handler — this is
+    // the ONLY place where the user gesture is guaranteed to be active.
+    // Every downstream path (modal → pendingStart → useEffect →
+    // startCapture) is async and loses the gesture. Store in a ref so
+    // startCapture can consume it later regardless of how many async
+    // hops happened in between.
+    try {
+      if (!preAudioCtxRef.current) {
+        const Ctx = window.AudioContext
+          || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+        preAudioCtxRef.current = new Ctx();
+        preAudioCtxRef.current.resume().catch(() => {});
+      }
+    } catch { /* ignore — setUpAudio handles gracefully */ }
+
     if (appState === "idle" && bulbIp) {
       proceedToCapture();
       return;
     }
-    // Otherwise, ask whether they have a bulb. The answer routes them
-    // into either the install modal (yes) or demo mode (no).
     setReqsOpen(true);
   }, [isMobile, appState, bulbIp, proceedToCapture]);
 
@@ -1106,7 +1117,7 @@ function AuraApp() {
               }}>
                 <div style={{ width: 48, height: 1, background: t.borderMid }} />
                 <span style={{ fontSize: 11, color: t.annotationColor, letterSpacing: "0.12em", whiteSpace: "nowrap" }}>
-                  {bulbIp ? `IP · ${bulbIp}` : demoMode ? "DEMO" : "—"}
+                  {bulbModel ? bulbModel.toUpperCase() : demoMode ? "DEMO" : "—"}
                 </span>
               </div>
             </>

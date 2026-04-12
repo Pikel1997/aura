@@ -76,3 +76,7 @@ export async function setBulbColor(
 export async function turnBulbOff(): Promise<void> {
   await req("/off", { method: "POST" });
 }
+
+export async function getModel(): Promise<{ moduleName: string; fwVersion?: string }> {
+  return req<{ moduleName: string; fwVersion?: string }>("/model", { method: "GET" }, 5000);
+}

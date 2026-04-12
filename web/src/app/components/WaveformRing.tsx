@@ -1,23 +1,24 @@
 import { useEffect, useRef } from "react";
 
 /**
- * Radial frequency bar ring rendered behind the orb when audio is
- * shared. Reads from a shared Uint8Array ref (the FFT data from the
- * AnalyserNode) on every animation frame — no React state updates, no
- * re-renders, just a canvas draw loop.
+ * Dithered frequency ring behind the orb. Three concentric dot layers:
+ *   inner  — bass (bins 4-20), bigger dots, less scatter
+ *   mid    — mids (bins 20-60), medium dots
+ *   outer  — highs (bins 60-120), tiny dots, most scatter
  *
- * All bars are drawn in the live color so no new hues are introduced.
+ * Each dot's radial distance from center is modulated by its nearest
+ * FFT bin. All dots drawn in the live color — no new hues.
+ *
+ * Reads from a shared Uint8Array ref on every rAF — zero React state
+ * updates, zero re-renders.
  */
 export function WaveformRing({
   fftRef,
   color,
   size,
 }: {
-  /** Ref to the Uint8Array from AnalyserNode.getByteFrequencyData(). */
   fftRef: React.RefObject<Uint8Array | null>;
-  /** Live RGB for bar color. */
   color: { r: number; g: number; b: number };
-  /** Diameter of the ring (should match or slightly exceed the orb size). */
   size: number;
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -29,10 +30,19 @@ export function WaveformRing({
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    const BARS = 64;
     const TWO_PI = Math.PI * 2;
-    // Skip the first ~4 bins (sub-bass rumble that doesn't look nice)
-    const BIN_OFFSET = 4;
+
+    // Seeded pseudo-random for consistent dot positions (no flicker).
+    // Each dot gets a deterministic jitter based on its index.
+    const seed = (i: number, k: number) =>
+      ((i * 7919 + k * 6971) % 1000) / 1000;
+
+    // Layer definitions — inner (bass), mid, outer (highs)
+    const layers = [
+      { dots: 90,  binLo: 4,  binHi: 20,  baseR: 0.53, maxMod: 0.18, dotMin: 1.8, dotMax: 3.5, jitterR: 6,  jitterA: 0.018, alphaBase: 0.15, alphaMod: 0.65 },
+      { dots: 130, binLo: 20, binHi: 60,  baseR: 0.62, maxMod: 0.14, dotMin: 1.2, dotMax: 2.5, jitterR: 8,  jitterA: 0.024, alphaBase: 0.10, alphaMod: 0.55 },
+      { dots: 180, binLo: 60, binHi: 120, baseR: 0.72, maxMod: 0.10, dotMin: 0.8, dotMax: 1.8, jitterR: 12, jitterA: 0.035, alphaBase: 0.08, alphaMod: 0.45 },
+    ];
 
     const draw = () => {
       rafRef.current = requestAnimationFrame(draw);
@@ -43,30 +53,39 @@ export function WaveformRing({
       const h = canvas.height;
       const cx = w / 2;
       const cy = h / 2;
-      const innerR = size * 0.52; // start just outside the orb sphere
-      const maxBarH = size * 0.28;
 
       ctx.clearRect(0, 0, w, h);
 
-      for (let i = 0; i < BARS; i++) {
-        const bin = BIN_OFFSET + Math.floor((i / BARS) * (fft.length / 2));
-        const val = (fft[bin] ?? 0) / 255;
-        if (val < 0.05) continue; // skip silent bars
+      for (const layer of layers) {
+        const binRange = layer.binHi - layer.binLo;
 
-        const angle = (i / BARS) * TWO_PI - Math.PI / 2;
-        const barH = val * maxBarH;
-        const x1 = cx + Math.cos(angle) * innerR;
-        const y1 = cy + Math.sin(angle) * innerR;
-        const x2 = cx + Math.cos(angle) * (innerR + barH);
-        const y2 = cy + Math.sin(angle) * (innerR + barH);
+        for (let i = 0; i < layer.dots; i++) {
+          const angle = (i / layer.dots) * TWO_PI;
 
-        ctx.beginPath();
-        ctx.moveTo(x1, y1);
-        ctx.lineTo(x2, y2);
-        ctx.strokeStyle = `rgba(${color.r}, ${color.g}, ${color.b}, ${0.25 + val * 0.55})`;
-        ctx.lineWidth = Math.max(2, (TWO_PI * innerR) / BARS * 0.45);
-        ctx.lineCap = "round";
-        ctx.stroke();
+          // Map dot index to FFT bin
+          const bin = layer.binLo + Math.floor((i / layer.dots) * binRange);
+          const val = Math.min(1, (fft[bin] ?? 0) / 255);
+          if (val < 0.03) continue; // skip dead-silent dots
+
+          // Deterministic jitter — consistent across frames, no flicker
+          const jR = (seed(i, 0) - 0.5) * layer.jitterR;
+          const jA = (seed(i, 1) - 0.5) * layer.jitterA;
+
+          // Radial distance = base + audio modulation + jitter
+          const r = (layer.baseR + val * layer.maxMod) * size + jR;
+          const a = angle + jA;
+
+          const x = cx + Math.cos(a) * r;
+          const y = cy + Math.sin(a) * r;
+
+          const dotR = layer.dotMin + val * (layer.dotMax - layer.dotMin);
+          const alpha = layer.alphaBase + val * layer.alphaMod;
+
+          ctx.beginPath();
+          ctx.arc(x, y, dotR, 0, TWO_PI);
+          ctx.fillStyle = `rgba(${color.r}, ${color.g}, ${color.b}, ${alpha})`;
+          ctx.fill();
+        }
       }
     };
 
@@ -74,7 +93,7 @@ export function WaveformRing({
     return () => cancelAnimationFrame(rafRef.current);
   }, [fftRef, color, size]);
 
-  const canvasSize = Math.round(size * 1.7);
+  const canvasSize = Math.round(size * 2);
 
   return (
     <canvas
@@ -87,7 +106,7 @@ export function WaveformRing({
         left: "50%",
         transform: "translate(-50%, -50%)",
         pointerEvents: "none",
-        opacity: 0.85,
+        opacity: 0.9,
       }}
     />
   );
