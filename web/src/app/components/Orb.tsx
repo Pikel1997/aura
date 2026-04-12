@@ -88,23 +88,7 @@ const configs: Record<OrbState, OrbConfig> = {
 
 interface OrbProps {
   state: OrbState;
-  /**
-   * When provided in the "running" state, the orb's solid base color
-   * and outer glow are built from this color so the visualization
-   * actually matches what the bulb is showing right now.
-   */
   liveColor?: { r: number; g: number; b: number };
-  /**
-   * When provided (running state, audio shared), the orb's breathe
-   * animation locks its duration to one beat of the captured song.
-   * 60-180 BPM, smoothed. Falls back to the default rhythm when null.
-   */
-  bpm?: number | null;
-  /**
-   * Override the size from the per-state config. Used for responsive
-   * scaling — App.tsx computes this from window.innerWidth so the orb
-   * grows on large monitors and shrinks on phones.
-   */
   size?: number;
 }
 
@@ -130,22 +114,11 @@ function buildLiveRing(r: number, g: number, b: number): { ring1: string; ring2:
   };
 }
 
-export function Orb({ state, liveColor, bpm, size }: OrbProps) {
+export function Orb({ state, liveColor, size }: OrbProps) {
   const { t } = useTheme();
   const cfg = configs[state];
   const isRunning = state === "running";
-  // Responsive override: when App.tsx passes a size, use it instead
-  // of the per-state default. Falls back to the config size otherwise.
   const renderSize = size ?? cfg.size;
-
-  // BPM → breathe duration. Each beat is one full pulse cycle.
-  // Doubled (half-time) when faster than 130 BPM so the orb doesn't
-  // strobe on fast songs.
-  let breatheHotDuration = "2.2s";
-  if (isRunning && bpm && bpm > 60 && bpm < 200) {
-    const adjustedBpm = bpm > 130 ? bpm / 2 : bpm;
-    breatheHotDuration = `${(60 / adjustedBpm).toFixed(2)}s`;
-  }
 
   // Override the running config with the live color when present
   const useLive = isRunning && liveColor && (liveColor.r + liveColor.g + liveColor.b) > 8;
@@ -205,7 +178,7 @@ export function Orb({ state, liveColor, bpm, size }: OrbProps) {
           animation: cfg.glitch
             ? "orb-glitch 0.4s steps(1) infinite"
             : cfg.pulse && isRunning
-            ? `orb-breathe-hot ${breatheHotDuration} ease-in-out infinite`
+            ? "orb-breathe-hot 2.2s ease-in-out infinite"
             : cfg.pulse
             ? "orb-breathe 3.4s ease-in-out infinite"
             : "none",

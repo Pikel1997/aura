@@ -194,7 +194,6 @@ function AuraApp() {
   });
   // Live BPM detected from the captured tab's audio (if shared). Drives
   // the orb's breathe animation only — the physical bulb is unaffected.
-  const [liveBpm, setLiveBpm] = useState<number | null>(null);
   // Whether the captured stream actually has an audio track. We surface
   // this in the BPM badge so users know whether they need to redo the
   // capture with "Share tab audio" ticked.
@@ -256,9 +255,6 @@ function AuraApp() {
   const audioCtxRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const audioFftRef = useRef<Uint8Array | null>(null);
-  const bassHistoryRef = useRef<number[]>([]);
-  const lastBeatTimeRef = useRef(0);
-  const beatTimesRef = useRef<number[]>([]);
   // Pre-created AudioContext from the Start click gesture. Stored in a
   // ref so it survives the async modal → bridge → useEffect chain.
   const preAudioCtxRef = useRef<AudioContext | null>(null);
@@ -326,10 +322,6 @@ function AuraApp() {
     analyserRef.current = null;
     audioCtxRef.current = null;
     audioFftRef.current = null;
-    bassHistoryRef.current = [];
-    beatTimesRef.current = [];
-    lastBeatTimeRef.current = 0;
-    setLiveBpm(null);
     setAudioShared(false);
   }, []);
 
@@ -389,58 +381,19 @@ function AuraApp() {
   // Reads bass-band FFT, compares to a rolling average, debounces beats,
   // computes BPM as median interval over the last 8 beats. Drives the
   // orb's pulse only — does NOT touch the bulb code path.
-  const detectBeat = useCallback(() => {
+  // Pump FFT data into audioFftRef so the WaveformWidget can read it.
+  // No beat detection — just a raw getByteFrequencyData call per tick.
+  const pumpFft = useCallback(() => {
     const analyser = analyserRef.current;
     const fft = audioFftRef.current;
     if (!analyser || !fft) return;
-
     analyser.getByteFrequencyData(fft);
-
-    // Use a wide band (bins 1-20, roughly 40-900 Hz) so we catch beats
-    // in any genre — not just bass-heavy electronic music. Vocals, drums,
-    // guitars all have energy in this range.
-    let energy = 0;
-    for (let i = 1; i <= 20; i++) energy += fft[i];
-    energy /= 20;
-
-    const history = bassHistoryRef.current;
-    history.push(energy);
-    if (history.length > 43) history.shift();
-    if (history.length < 8) return; // reduced from 10 → 8
-
-    const avg = history.reduce((a, b) => a + b, 0) / history.length;
-    const now = performance.now();
-    const cooldownOk = now - lastBeatTimeRef.current > 200;
-    // Relaxed thresholds: floor from 30 → 8, onset ratio from 1.45 → 1.25
-    const isOnset = energy > avg * 1.25 && energy > 8 && cooldownOk;
-    if (!isOnset) return;
-
-    lastBeatTimeRef.current = now;
-    const beats = beatTimesRef.current;
-    beats.push(now);
-    // Keep last ~5s of beats
-    while (beats.length > 0 && now - beats[0] > 5000) beats.shift();
-    if (beats.length < 3) return; // reduced from 4 → 3
-
-    // Median inter-beat interval, filtered to musical range
-    const intervals: number[] = [];
-    for (let i = 1; i < beats.length; i++) {
-      const dt = beats[i] - beats[i - 1];
-      if (dt > 200 && dt < 1500) intervals.push(dt); // widened from 250-1100
-    }
-    if (intervals.length < 2) return; // reduced from 3 → 2
-    intervals.sort((a, b) => a - b);
-    const median = intervals[Math.floor(intervals.length / 2)];
-    const rawBpm = 60000 / median;
-    if (rawBpm < 40 || rawBpm > 220) return; // widened from 60-180
-
-    setLiveBpm((prev) => (prev ? prev * 0.6 + rawBpm * 0.4 : rawBpm));
   }, []);
 
   const startTicking = useCallback(() => {
     if (tickRef.current) window.clearInterval(tickRef.current);
     tickRef.current = window.setInterval(() => {
-      detectBeat();
+      pumpFft();
 
       const v = videoRef.current;
       const c = canvasRef.current;
@@ -500,7 +453,7 @@ function AuraApp() {
         });
       }
     }, TICK_MS);
-  }, [stopCapture, detectBeat]);
+  }, [stopCapture, pumpFft]);
 
   const startCapture = useCallback(async () => {
     if (appState !== "idle") return;
@@ -578,9 +531,6 @@ function AuraApp() {
       // Reset the eased orb state so the new source doesn't ghost
       easedRef.current = { r: 0, g: 0, b: 0, bri: 0 };
       lastSentRef.current = { r: -1, g: -1, b: -1, bri: -1 };
-      bassHistoryRef.current = [];
-      beatTimesRef.current = [];
-      setLiveBpm(null);
     } catch {
       // User cancelled the picker — keep the existing capture running
     }
@@ -1078,7 +1028,6 @@ function AuraApp() {
           <Orb
             state={appState}
             liveColor={isRunning ? { r: metrics.r, g: metrics.g, b: metrics.b } : undefined}
-            bpm={isRunning ? liveBpm : null}
             size={isRunning ? orbRunningSize : orbIdleSize}
           />
           {/* Orb callout annotations — brand + bulb IP */}
@@ -1150,59 +1099,6 @@ function AuraApp() {
               transition: "background 0.45s ease",
             }} />
 
-            {/* BPM badge — always visible while running, content
-                adapts to whether audio was shared and whether a beat
-                has been locked yet. */}
-            {(() => {
-              const bpmValue = liveBpm ? Math.round(liveBpm) : null;
-              let primary: string;
-              let helper: string;
-              if (!audioShared) {
-                primary = "—";
-                helper = "BPM · share tab audio";
-              } else if (bpmValue == null) {
-                primary = "—";
-                helper = "BPM · detecting…";
-              } else {
-                primary = String(bpmValue);
-                helper = "BPM";
-              }
-              return (
-                <div
-                  aria-live="polite"
-                  aria-label={`Beats per minute: ${bpmValue ?? "not detected"}`}
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "baseline",
-                    gap: 10,
-                    marginBottom: "clamp(12px, 1.6vh, 18px)",
-                    padding: "10px 18px 8px",
-                    border: `1px solid ${t.borderStrong}`,
-                    background: t.surface,
-                  }}
-                >
-                  <span style={{
-                    fontFamily: "'Bebas Neue', sans-serif",
-                    fontSize: 28,
-                    letterSpacing: "0.06em",
-                    color: bpmValue ? t.text : t.textMuted,
-                    minWidth: 36,
-                    textAlign: "center",
-                  }}>
-                    {primary}
-                  </span>
-                  <span style={{
-                    fontSize: 11,
-                    letterSpacing: "0.22em",
-                    textTransform: "uppercase",
-                    color: t.textSubtle,
-                    fontWeight: 700,
-                  }}>
-                    {helper}
-                  </span>
-                </div>
-              );
-            })()}
 
             <div style={{
               display: "grid",
