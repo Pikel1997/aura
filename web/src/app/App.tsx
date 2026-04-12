@@ -4,6 +4,7 @@ import { Orb } from "./components/Orb";
 import { StatusPill } from "./components/StatusPill";
 import { InstallBridge } from "./components/InstallBridge";
 import { RequirementsModal } from "./components/RequirementsModal";
+import { WaveformRing } from "./components/WaveformRing";
 import { GrainOverlay } from "./components/GrainOverlay";
 import { CropMarks } from "./components/CropMarks";
 import {
@@ -329,39 +330,28 @@ function AuraApp() {
     setAudioShared(false);
   }, []);
 
-  const setUpAudio = useCallback((stream: MediaStream) => {
+  // Accept a pre-created AudioContext so it stays in the user-gesture
+  // context (Chrome blocks AudioContext creation outside gestures).
+  const setUpAudio = useCallback((stream: MediaStream, preCtx?: AudioContext) => {
     const tracks = stream.getAudioTracks();
-    // eslint-disable-next-line no-console
-    console.log("[Aura] audio tracks in stream:", tracks.length, tracks.map((t) => t.label));
     if (tracks.length === 0) {
       setAudioShared(false);
-      return; // user didn't tick "Share tab audio"
+      return;
     }
     setAudioShared(true);
     try {
-      const Ctx = (window.AudioContext
-        || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext);
-      const ctx = new Ctx();
-      // Chrome creates AudioContexts in 'suspended' state until a user
-      // gesture; resume() asynchronously kicks it. Safe to call regardless
-      // of state — it's a no-op when already running.
+      const ctx = preCtx ?? new (window.AudioContext
+        || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
       ctx.resume().catch(() => { /* ignore */ });
       const source = ctx.createMediaStreamSource(new MediaStream(tracks));
       const analyser = ctx.createAnalyser();
       analyser.fftSize = 1024;
       analyser.smoothingTimeConstant = 0.55;
       source.connect(analyser);
-      // Note: deliberately NOT connecting analyser to ctx.destination —
-      // we don't want to duplicate the song into the user's speakers.
       audioCtxRef.current = ctx;
       analyserRef.current = analyser;
       audioFftRef.current = new Uint8Array(analyser.frequencyBinCount);
-      // eslint-disable-next-line no-console
-      console.log("[Aura] audio analyzer ready, ctx state:", ctx.state);
-    } catch (e) {
-      // Audio analyzer setup failed — fall back silently to default pulse
-      // eslint-disable-next-line no-console
-      console.warn("[Aura] audio analyzer unavailable:", e);
+    } catch {
       setAudioShared(false);
     }
   }, []);
@@ -510,11 +500,19 @@ function AuraApp() {
   const startCapture = useCallback(async () => {
     if (appState !== "idle") return;
     setAppState("picking-tab");
+
+    // Pre-create the AudioContext NOW — the Start click is the user
+    // gesture, and Chrome blocks AudioContext creation after async
+    // boundaries (like getDisplayMedia). Creating it here guarantees
+    // it lands in the gesture context.
+    let preCtx: AudioContext | undefined;
     try {
-      // Request audio too — Chrome will show a "Share tab audio" tickbox
-      // in the picker. If the user shares it we use it for BPM detection
-      // (orb-only). If they don't, the orb falls back to its default
-      // pulse and nothing else changes.
+      preCtx = new (window.AudioContext
+        || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
+      preCtx.resume().catch(() => {});
+    } catch { /* ignore — setUpAudio will handle gracefully */ }
+
+    try {
       const stream = await navigator.mediaDevices.getDisplayMedia({
         video: { frameRate: 30 } as MediaTrackConstraints,
         audio: true,
@@ -526,9 +524,10 @@ function AuraApp() {
       const track = stream.getVideoTracks()[0];
       setTabName(friendlyTabName(track));
 
-      // Set up the audio analyzer if the stream has audio. Failures are
-      // silent — bulb code path is unaffected.
-      setUpAudio(stream);
+      // Wire up the pre-created AudioContext with the stream's audio
+      // track. Audio data takes 2-3s to start flowing after capture
+      // begins — the beat detection loop tolerates this automatically.
+      setUpAudio(stream, preCtx);
 
       track.addEventListener("ended", () => {
         stopCapture();
@@ -1063,39 +1062,55 @@ function AuraApp() {
         )}
 
         <div style={{ position: "relative" }}>
+          {/* Waveform ring — radial frequency bars behind the orb,
+              only when running + audio is shared */}
+          {isRunning && audioShared && (
+            <WaveformRing
+              fftRef={audioFftRef}
+              color={{ r: metrics.r, g: metrics.g, b: metrics.b }}
+              size={orbRunningSize}
+            />
+          )}
           <Orb
             state={appState}
             liveColor={isRunning ? { r: metrics.r, g: metrics.g, b: metrics.b } : undefined}
             bpm={isRunning ? liveBpm : null}
             size={isRunning ? orbRunningSize : orbIdleSize}
           />
-          <div style={{
-            position: "absolute",
-            top: "50%",
-            right: "-64px",
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            transform: "translateY(-50%)",
-            pointerEvents: "none",
-          }}>
-            <div style={{ width: 48, height: 1, background: t.borderMid, transition: "background 0.45s ease" }} />
-            <span style={{ fontSize: 11, color: t.annotationColor, letterSpacing: "0.12em", whiteSpace: "nowrap", transition: "color 0.45s ease" }}>PHILIPS WIZ</span>
-          </div>
-          <div style={{
-            position: "absolute",
-            top: "50%",
-            left: "-72px",
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            transform: "translateY(-50%)",
-            pointerEvents: "none",
-            flexDirection: "row-reverse",
-          }}>
-            <div style={{ width: 48, height: 1, background: t.borderMid, transition: "background 0.45s ease" }} />
-            <span style={{ fontSize: 11, color: t.annotationColor, letterSpacing: "0.12em", whiteSpace: "nowrap", transition: "color 0.45s ease" }}>A19 · 800LM</span>
-          </div>
+          {/* Orb callout annotations — brand + bulb IP */}
+          {!isCompact && (
+            <>
+              <div style={{
+                position: "absolute",
+                top: "50%",
+                right: "-64px",
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                transform: "translateY(-50%)",
+                pointerEvents: "none",
+              }}>
+                <div style={{ width: 48, height: 1, background: t.borderMid }} />
+                <span style={{ fontSize: 11, color: t.annotationColor, letterSpacing: "0.12em", whiteSpace: "nowrap" }}>PHILIPS WIZ</span>
+              </div>
+              <div style={{
+                position: "absolute",
+                top: "50%",
+                left: "-72px",
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                transform: "translateY(-50%)",
+                pointerEvents: "none",
+                flexDirection: "row-reverse",
+              }}>
+                <div style={{ width: 48, height: 1, background: t.borderMid }} />
+                <span style={{ fontSize: 11, color: t.annotationColor, letterSpacing: "0.12em", whiteSpace: "nowrap" }}>
+                  {bulbIp ? `IP · ${bulbIp}` : demoMode ? "DEMO" : "—"}
+                </span>
+              </div>
+            </>
+          )}
         </div>
 
         <div style={{ height: "clamp(28px, 3vh, 56px)" }} />
