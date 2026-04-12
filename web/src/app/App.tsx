@@ -13,7 +13,6 @@ import {
   connectBulb,
   setBulbColor,
   turnBulbOff,
-  getModel,
   BRIDGE_URL,
 } from "../lib/bridge";
 import { extractAuraColor, lumToBrightness } from "../lib/colors";
@@ -189,7 +188,6 @@ function AuraApp() {
 
   const [appState, setAppState] = useState<AppState>("checking");
   const [bulbIp, setBulbIp] = useState<string | null>(null);
-  const [bulbModel, setBulbModel] = useState<string | null>(null);
   const [tabName, setTabName] = useState<string | null>(null);
   const [metrics, setMetrics] = useState({
     r: 0, g: 0, b: 0, bri: 0, lum: 0, chr: 0,
@@ -285,7 +283,6 @@ function AuraApp() {
       if (status.connected && status.ip) {
         setBulbIp(status.ip);
         setAppState("idle");
-        getModel().then((m) => setBulbModel(m.moduleName)).catch(() => {});
         return;
       }
       try {
@@ -299,7 +296,6 @@ function AuraApp() {
         if (ok) {
           setBulbIp(bulbs[0].ip);
           setAppState("idle");
-          getModel().then((m) => setBulbModel(m.moduleName)).catch(() => {});
         } else {
           setAppState("no-bulb");
         }
@@ -1108,7 +1104,7 @@ function AuraApp() {
               }}>
                 <div style={{ width: 48, height: 1, background: t.borderMid }} />
                 <span style={{ fontSize: 11, color: t.annotationColor, letterSpacing: "0.12em", whiteSpace: "nowrap" }}>
-                  {bulbModel ? bulbModel.toUpperCase() : demoMode ? "DEMO" : "—"}
+                  {demoMode ? "DEMO" : "E27 · 806LM"}
                 </span>
               </div>
             </>
