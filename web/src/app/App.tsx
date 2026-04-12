@@ -389,12 +389,21 @@ function AuraApp() {
   // Reads bass-band FFT, compares to a rolling average, debounces beats,
   // computes BPM as median interval over the last 8 beats. Drives the
   // orb's pulse only — does NOT touch the bulb code path.
+  const beatLogCountRef = useRef(0);
   const detectBeat = useCallback(() => {
     const analyser = analyserRef.current;
     const fft = audioFftRef.current;
     if (!analyser || !fft) return;
 
     analyser.getByteFrequencyData(fft);
+
+    // Debug: log first 20 ticks to see if data is flowing
+    beatLogCountRef.current++;
+    if (beatLogCountRef.current <= 20 || beatLogCountRef.current % 50 === 0) {
+      const max = Math.max(...Array.from(fft.slice(0, 64)));
+      // eslint-disable-next-line no-console
+      console.log(`[Aura FFT] tick=${beatLogCountRef.current} max=${max} ctx=${audioCtxRef.current?.state}`);
+    }
 
     // Bass band: bins 1-10 ≈ 40-450 Hz at fftSize 1024 / sampleRate ~48k
     let bass = 0;
@@ -403,7 +412,7 @@ function AuraApp() {
 
     const history = bassHistoryRef.current;
     history.push(bass);
-    if (history.length > 43) history.shift(); // ~4.3s at 10 Hz tick
+    if (history.length > 43) history.shift();
     if (history.length < 10) return;
 
     const avg = history.reduce((a, b) => a + b, 0) / history.length;
@@ -608,20 +617,7 @@ function AuraApp() {
       setMobileBlocked(true);
       return;
     }
-    // Pre-create AudioContext RIGHT HERE in the click handler — this is
-    // the ONLY place where the user gesture is guaranteed to be active.
-    // Every downstream path (modal → pendingStart → useEffect →
-    // startCapture) is async and loses the gesture. Store in a ref so
-    // startCapture can consume it later regardless of how many async
-    // hops happened in between.
-    try {
-      if (!preAudioCtxRef.current) {
-        const Ctx = window.AudioContext
-          || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-        preAudioCtxRef.current = new Ctx();
-        preAudioCtxRef.current.resume().catch(() => {});
-      }
-    } catch { /* ignore — setUpAudio handles gracefully */ }
+    ensureAudioCtx();
 
     if (appState === "idle" && bulbIp) {
       proceedToCapture();
@@ -630,13 +626,30 @@ function AuraApp() {
     setReqsOpen(true);
   }, [isMobile, appState, bulbIp, proceedToCapture]);
 
+  // Helper: ensure AudioContext exists in the current gesture. Called
+  // from every click handler in the flow so at least one survives.
+  const ensureAudioCtx = () => {
+    try {
+      if (!preAudioCtxRef.current || preAudioCtxRef.current.state === "closed") {
+        const Ctx = window.AudioContext
+          || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+        preAudioCtxRef.current = new Ctx();
+      }
+      if (preAudioCtxRef.current.state === "suspended") {
+        preAudioCtxRef.current.resume().catch(() => {});
+      }
+    } catch { /* ignore */ }
+  };
+
   const handleReqsHaveBulb = useCallback(() => {
+    ensureAudioCtx();
     setReqsOpen(false);
     setDemoMode(false);
     setPendingStart(true);
   }, []);
 
   const handleReqsNoBulb = useCallback(() => {
+    ensureAudioCtx();
     setReqsOpen(false);
     setDemoMode(true);
     setPendingStart(true);
@@ -1149,14 +1162,23 @@ function AuraApp() {
                 has been locked yet. */}
             {(() => {
               const bpmValue = liveBpm ? Math.round(liveBpm) : null;
+              // Debug: log audio state on every render so we can see
+              // what's happening in the console (open DevTools → Console)
+              const ctxState = audioCtxRef.current?.state ?? "none";
+              const hasAnalyser = !!analyserRef.current;
+              const hasFft = !!audioFftRef.current;
+              // eslint-disable-next-line no-console
+              if (audioShared) console.log("[Aura BPM]", { audioShared, ctxState, hasAnalyser, hasFft, liveBpm });
+
               let primary: string;
               let helper: string;
               if (!audioShared) {
                 primary = "—";
-                helper = "BPM · share tab audio";
+                helper = "BPM · tick 'share audio' in picker";
               } else if (bpmValue == null) {
                 primary = "—";
-                helper = "BPM · listening for a beat…";
+                // Show diagnostic state so the user knows it's trying
+                helper = `BPM · ${ctxState === "running" ? "listening…" : "ctx:" + ctxState}`;
               } else {
                 primary = String(bpmValue);
                 helper = "BPM";
