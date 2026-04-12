@@ -120,11 +120,23 @@ export function Orb({ state, liveColor, size }: OrbProps) {
   const isRunning = state === "running";
   const renderSize = size ?? cfg.size;
 
-  // Override the running config with the live color when present
+  // Override the running config with the live color when present.
+  // The live color is blended ~30% with the Aura violet so the orb
+  // always feels like it belongs to the brand palette. Pure red →
+  // warm purple-red, pure blue → rich purple-blue, white → light violet.
   const useLive = isRunning && liveColor && (liveColor.r + liveColor.g + liveColor.b) > 8;
-  const liveHex = useLive
-    ? `rgb(${liveColor!.r}, ${liveColor!.g}, ${liveColor!.b})`
+  const VIOLET = { r: 128, g: 96, b: 240 };
+  const BLEND = 0.28;
+  const blended = useLive ? {
+    r: Math.round(liveColor!.r * (1 - BLEND) + VIOLET.r * BLEND),
+    g: Math.round(liveColor!.g * (1 - BLEND) + VIOLET.g * BLEND),
+    b: Math.round(liveColor!.b * (1 - BLEND) + VIOLET.b * BLEND),
+  } : null;
+  const liveHex = blended
+    ? `rgb(${blended.r}, ${blended.g}, ${blended.b})`
     : null;
+  // Shadows and rings use the raw (unblended) live color so the glow
+  // matches the actual content, not the violet tint.
   const shadow = useLive
     ? buildLiveShadow(liveColor!.r, liveColor!.g, liveColor!.b, t.isDark)
     : (t.isDark ? cfg.shadow : cfg.lightShadow);
@@ -188,18 +200,30 @@ export function Orb({ state, liveColor, size }: OrbProps) {
           overflow: "hidden",
         }}
       >
-        {/* ── Live-mode overlays — color is the focal element ──
-            Just the edge vignette, which gives the orb its rounded
-            depth without polluting the color. */}
+        {/* ── Live-mode overlays — match the premium sphere look of
+            the static orbs (highlight + vignette) ── */}
         {liveHex && (
-          <div style={{
-            position: "absolute",
-            inset: 0,
-            borderRadius: "50%",
-            background:
-              "radial-gradient(circle at 50% 50%, transparent 0%, transparent 50%, rgba(0,0,0,0.32) 88%, rgba(0,0,0,0.72) 100%)",
-            pointerEvents: "none",
-          }} />
+          <>
+            {/* Soft top-left highlight — matches idle orb's lit-surface
+                feel. Subtle enough not to read as "white blob". */}
+            <div style={{
+              position: "absolute",
+              inset: 0,
+              borderRadius: "50%",
+              background:
+                "radial-gradient(circle at 38% 32%, rgba(255,255,255,0.22) 0%, rgba(255,255,255,0.06) 28%, transparent 52%)",
+              pointerEvents: "none",
+            }} />
+            {/* Edge vignette — dark falloff for sphere depth */}
+            <div style={{
+              position: "absolute",
+              inset: 0,
+              borderRadius: "50%",
+              background:
+                "radial-gradient(circle at 50% 50%, transparent 0%, transparent 45%, rgba(0,0,0,0.30) 82%, rgba(0,0,0,0.68) 100%)",
+              pointerEvents: "none",
+            }} />
+          </>
         )}
 
         {/* ── Static-mode overlays (idle, error, etc.) ── */}
