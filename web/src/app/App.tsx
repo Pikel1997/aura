@@ -304,10 +304,14 @@ function AuraApp() {
     }
   }, []);
 
-  // The bridge bootstrap re-runs when demoMode flips so users can flow
-  // smoothly between "demo" and "real bulb" without reloading the page.
+  // Re-run bridge bootstrap when demoMode flips — but ONLY if we're
+  // not already in the running state. Without this guard, entering demo
+  // mode via "no bulb" calls checkBridge() which sets appState("idle"),
+  // clobbering the appState("running") that startDemo() just set.
   useEffect(() => {
-    checkBridge();
+    if (appState !== "running") {
+      checkBridge();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [demoMode]);
 
@@ -503,19 +507,30 @@ function AuraApp() {
     setAppState("running");
     setTabName("Demo");
 
-    let tgtR = Math.random() * 255;
-    let tgtG = Math.random() * 255;
-    let tgtB = Math.random() * 255;
+    // Bright saturated colors — pick one channel high (200-255),
+    // one mid (80-180), one low (0-60) for vivid results every time.
+    function brightRandom(): [number, number, number] {
+      const hi = 200 + Math.random() * 55;
+      const mid = 80 + Math.random() * 100;
+      const lo = Math.random() * 60;
+      const channels = [hi, mid, lo];
+      // Shuffle
+      for (let i = 2; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [channels[i], channels[j]] = [channels[j], channels[i]];
+      }
+      return channels as [number, number, number];
+    }
+
+    let [tgtR, tgtG, tgtB] = brightRandom();
     let curR = tgtR, curG = tgtG, curB = tgtB;
     let tick = 0;
 
     tickRef.current = window.setInterval(() => {
       tick++;
-      // New target color every ~2.5s (75 ticks at 33ms)
+      // New bright color every ~2.5s
       if (tick % 75 === 0) {
-        tgtR = Math.random() * 255;
-        tgtG = Math.random() * 255;
-        tgtB = Math.random() * 255;
+        [tgtR, tgtG, tgtB] = brightRandom();
       }
       // Ease toward target
       curR += (tgtR - curR) * 0.06;
