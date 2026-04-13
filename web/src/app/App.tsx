@@ -1232,6 +1232,18 @@ function AuraApp() {
                 : "Reactive lighting for your screen."}
             </p>
 
+            {isMobile && (
+              <p style={{
+                fontSize: 11,
+                color: t.textGhost,
+                letterSpacing: "0.08em",
+                marginBottom: 4,
+                fontFamily: "'Space Mono', monospace",
+              }}>
+                Use on desktop for the best experience.
+              </p>
+            )}
+
             <div style={{
               display: "flex",
               flexDirection: "column",
