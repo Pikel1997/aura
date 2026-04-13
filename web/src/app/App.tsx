@@ -628,11 +628,12 @@ function AuraApp() {
   }, []);
 
   const handleReqsNoBulb = useCallback(() => {
-    ensureAudioCtx();
     setReqsOpen(false);
     setDemoMode(true);
-    setPendingStart(true);
-  }, []);
+    // Call startDemo directly — no async chain needed, no bridge,
+    // no pendingStart. Just start the random color cycling immediately.
+    startDemo();
+  }, [startDemo]);
 
   const handleReqsClose = useCallback(() => {
     setReqsOpen(false);
@@ -658,7 +659,7 @@ function AuraApp() {
       setInstallOpen(true);
       return;
     }
-  }, [pendingStart, demoMode, appState, bulbIp, startCapture]);
+  }, [pendingStart, demoMode, appState, bulbIp, startCapture, startDemo]);
 
   useEffect(() => () => { stopCapture(); }, [stopCapture]);
 
