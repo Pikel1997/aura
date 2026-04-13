@@ -130,11 +130,32 @@ fi
 # ── 7. Bring the browser back ───────────────────────────────────────
 if [ "$(uname)" = "Darwin" ]; then
   echo "  →  Returning you to your browser…"
-  osascript -e 'tell application "Google Chrome" to activate' 2>/dev/null \
-    || osascript -e 'tell application "Arc" to activate' 2>/dev/null \
-    || osascript -e 'tell application "Safari" to activate' 2>/dev/null \
-    || osascript -e 'tell application "Brave Browser" to activate' 2>/dev/null \
-    || true
+  # Bring back whatever browser the user was using — detect the default
+  # browser from macOS Launch Services instead of hardcoding Chrome.
+  DEFAULT_BROWSER=$(osascript -e 'tell application "System Events" to get name of first process whose frontmost is false and background only is false' 2>/dev/null || echo "")
+  # Fallback: read the default HTTP handler
+  if [ -z "$DEFAULT_BROWSER" ]; then
+    BUNDLE_ID=$(defaults read ~/Library/Preferences/com.apple.LaunchServices/com.apple.launchservices.secure LSHandlers 2>/dev/null \
+      | grep -B1 "https" | grep "LSHandlerRoleAll" | head -1 | sed 's/.*= "//;s/";//' 2>/dev/null || echo "")
+    case "$BUNDLE_ID" in
+      *chrome*)  DEFAULT_BROWSER="Google Chrome" ;;
+      *safari*)  DEFAULT_BROWSER="Safari" ;;
+      *arc*)     DEFAULT_BROWSER="Arc" ;;
+      *brave*)   DEFAULT_BROWSER="Brave Browser" ;;
+      *firefox*) DEFAULT_BROWSER="Firefox" ;;
+      *edge*)    DEFAULT_BROWSER="Microsoft Edge" ;;
+      *)         DEFAULT_BROWSER="" ;;
+    esac
+  fi
+  # Try the detected browser first, fall back to common ones
+  if [ -n "$DEFAULT_BROWSER" ]; then
+    osascript -e "tell application \"$DEFAULT_BROWSER\" to activate" 2>/dev/null || true
+  else
+    osascript -e 'tell application "Google Chrome" to activate' 2>/dev/null \
+      || osascript -e 'tell application "Safari" to activate' 2>/dev/null \
+      || osascript -e 'tell application "Arc" to activate' 2>/dev/null \
+      || true
+  fi
 fi
 
 # ── 8. Friendly closing message ─────────────────────────────────────
