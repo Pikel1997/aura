@@ -13,6 +13,7 @@ import {
   connectBulb,
   setBulbColor,
   turnBulbOff,
+  shutdownBridge,
   BRIDGE_URL,
 } from "../lib/bridge";
 import { extractAuraColor, lumToBrightness } from "../lib/colors";
@@ -1255,7 +1256,7 @@ function AuraApp() {
           <button
             type="button"
             onClick={async () => {
-              try { await turnBulbOff(); } catch {}
+              try { await shutdownBridge(); } catch {}
               setBulbIp(null);
               setAppState("no-bridge");
             }}

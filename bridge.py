@@ -183,6 +183,17 @@ class Handler(BaseHTTPRequestHandler):
                     state["last_bri"] = 0
                     code, data = _ok()
 
+            elif self.path == "/shutdown":
+                try:
+                    bulb.set_color(0, 0, 0, 0, force=True)
+                    bulb.shutdown()
+                except Exception:
+                    pass
+                self._json(200, {"ok": True, "message": "bridge shutting down"})
+                import threading, os as _os
+                threading.Timer(0.3, lambda: _os._exit(0)).start()
+                return
+
             else:
                 code, data = _err("not found", 404)
         except Exception as e:

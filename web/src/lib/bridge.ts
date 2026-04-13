@@ -77,3 +77,7 @@ export async function turnBulbOff(): Promise<void> {
   await req("/off", { method: "POST" });
 }
 
+export async function shutdownBridge(): Promise<void> {
+  await req("/shutdown", { method: "POST" }, 3000);
+}
+
