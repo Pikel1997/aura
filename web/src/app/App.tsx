@@ -1250,6 +1250,32 @@ function AuraApp() {
           textTransform: "uppercase",
           transition: "color 0.45s ease",
         }}>Open source under MIT.</p>
+        {/* Disconnect bridge — visible when bridge is connected */}
+        {bulbIp && !isRunning && !demoMode && (
+          <button
+            type="button"
+            onClick={async () => {
+              try { await turnBulbOff(); } catch {}
+              setBulbIp(null);
+              setAppState("no-bridge");
+            }}
+            style={{
+              background: "transparent",
+              border: "none",
+              fontFamily: "'Space Mono', monospace",
+              fontSize: 11,
+              color: t.textGhost,
+              letterSpacing: "0.08em",
+              cursor: "pointer",
+              padding: "4px 8px",
+              transition: "color 0.15s",
+            }}
+            onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.color = t.textMuted; }}
+            onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.color = t.textGhost; }}
+          >
+            Disconnect bridge
+          </button>
+        )}
         <p style={{
           fontSize: 11,
           color: t.annotationColor,
