@@ -242,7 +242,6 @@ function AuraApp() {
   // Mobile-only: clicking Start shows a one-line "use desktop" message
   // instead of opening the requirements modal. The message persists
   // until the user resizes the window or reloads.
-  const [mobileBlocked, setMobileBlocked] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -497,6 +496,40 @@ function AuraApp() {
     }
   }, [appState, startTicking, stopCapture, setUpAudio]);
 
+  // Demo mode — random cycling colors, no screen capture, no bridge.
+  // Works on mobile and for users without a bulb.
+  const startDemo = useCallback(() => {
+    setAppState("running");
+    setTabName("Demo");
+
+    let tgtR = Math.random() * 255;
+    let tgtG = Math.random() * 255;
+    let tgtB = Math.random() * 255;
+    let curR = tgtR, curG = tgtG, curB = tgtB;
+    let tick = 0;
+
+    tickRef.current = window.setInterval(() => {
+      tick++;
+      // New target color every ~2.5s (75 ticks at 33ms)
+      if (tick % 75 === 0) {
+        tgtR = Math.random() * 255;
+        tgtG = Math.random() * 255;
+        tgtB = Math.random() * 255;
+      }
+      // Ease toward target
+      curR += (tgtR - curR) * 0.06;
+      curG += (tgtG - curG) * 0.06;
+      curB += (tgtB - curB) * 0.06;
+
+      const r = Math.round(curR);
+      const g = Math.round(curG);
+      const b = Math.round(curB);
+      const bri = Math.round((r + g + b) / 3);
+
+      setMetrics({ r, g, b, bri, lum: +(bri / 255).toFixed(2), chr: 0.5 });
+    }, 33); // ~30fps
+  }, []);
+
   // Hot-swap the captured source mid-session. Opens the picker again,
   // tears down the current stream + audio analyzer, and sets up the
   // new one without leaving the running state. If the user cancels
@@ -557,7 +590,10 @@ function AuraApp() {
 
   const handleStartClick = useCallback(() => {
     if (isMobile) {
-      setMobileBlocked(true);
+      // Mobile can't do screen capture — go straight to demo mode
+      // with random cycling colors. No modal, no picker.
+      setDemoMode(true);
+      startDemo();
       return;
     }
     ensureAudioCtx();
@@ -609,7 +645,7 @@ function AuraApp() {
     if (!pendingStart) return;
     if (demoMode && appState === "idle") {
       setPendingStart(false);
-      startCapture();
+      startDemo();
       return;
     }
     if (!demoMode && appState === "idle" && bulbIp) {
@@ -1187,20 +1223,6 @@ function AuraApp() {
             }}>
               {statusPill}
               {primaryAction}
-              {/* Mobile-only nudge — only after the user clicks Start */}
-              {mobileBlocked && (
-                <p style={{
-                  marginTop: 4,
-                  fontSize: 12,
-                  color: t.textMuted,
-                  letterSpacing: "0.08em",
-                  textTransform: "uppercase",
-                  textAlign: "center",
-                  fontFamily: "'Space Mono', monospace",
-                }}>
-                  Best on desktop. Open this on a Mac.
-                </p>
-              )}
             </div>
           </>
         )}
