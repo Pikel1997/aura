@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Analytics } from "@vercel/analytics/react";
+import { SpeedInsights } from "@vercel/speed-insights/react";
 import { ThemeProvider, useTheme } from "./components/ThemeContext";
 import { Orb } from "./components/Orb";
 import { StatusPill } from "./components/StatusPill";
@@ -680,7 +681,7 @@ function AuraApp() {
 
   useEffect(() => () => { stopCapture(); }, [stopCapture]);
 
-  // ── Render ────────────────────────────���─────────────────────────
+  // ── Render ─────────��──────────────────���─────────────────────────
   const accent = ACCENT_COLORS[appState];
   const isRunning = appState === "running";
 
@@ -1479,6 +1480,7 @@ export default function App() {
     <ThemeProvider isDark={isDark} toggle={() => setIsDark((d) => !d)}>
       <AuraApp />
       <Analytics />
+      <SpeedInsights />
     </ThemeProvider>
   );
 }
